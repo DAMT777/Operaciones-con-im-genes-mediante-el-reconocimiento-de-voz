@@ -5,7 +5,7 @@ import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 from tkinter import filedialog, messagebox
 
-from configuracion import ARCHIVO_UMBRALES
+from configuracion import ARCHIVO_UMBRALES, ETIQUETAS_COMANDOS
 from entrenamiento_comandos import entrenar_modelo_comandos
 from captura_microfono import grabar_audio_microfono
 from reconocimiento_comandos import (
@@ -70,29 +70,50 @@ class AplicacionReconocimiento(tb.Window):
 
         btn_grabar_reconocer = tb.Button(
             marco_botones,
-            text="4. Grabar desde micrófono y reconocer comando",
+            text="4. Grabar desde microfono y reconocer comando",
             bootstyle="success",
             command=self.grabar_y_reconocer_en_hilo,
         )
         btn_grabar_reconocer.pack(fill=X, pady=5)
 
-        # Área de estado
+        # Area de estado
         self.texto_estado = tb.Text(
             marco_principal,
             height=8,
-            bootstyle="dark",
             wrap="word",
         )
         self.texto_estado.pack(fill=BOTH, expand=YES, pady=(15, 0))
 
+        # Estilo oscuro manual
+        self.texto_estado.configure(
+            background="#1e1e1e",
+            foreground="white",
+            insertbackground="white",
+        )
+
         self.agregar_linea_estado(
-            "Bienvenido. Configure la base de datos de audio y siga los pasos 1 → 4."
+            "Bienvenido. Configure la base de datos de audio y siga los pasos 1 - 4."
         )
 
     # ------------------------------------------------------------------
     def agregar_linea_estado(self, mensaje):
-        self.texto_estado.insert("end", mensaje + "\n")
-        self.texto_estado.see("end")
+        # Siempre actualiza el Text en el hilo principal
+        self.after(
+            0,
+            lambda: (
+                self.texto_estado.insert("end", mensaje + "\n"),
+                self.texto_estado.see("end"),
+            ),
+        )
+
+    def _mostrar_info(self, titulo, mensaje):
+        self.after(0, lambda: messagebox.showinfo(titulo, mensaje))
+
+    def _mostrar_advertencia(self, titulo, mensaje):
+        self.after(0, lambda: messagebox.showwarning(titulo, mensaje))
+
+    def _mostrar_error(self, titulo, mensaje):
+        self.after(0, lambda: messagebox.showerror(titulo, mensaje))
 
     # ------------------------------------------------------------------
     def ejecutar_entrenamiento_en_hilo(self):
@@ -106,30 +127,30 @@ class AplicacionReconocimiento(tb.Window):
             self.agregar_linea_estado(
                 f"Entrenamiento finalizado. Archivo de umbrales guardado en: {ARCHIVO_UMBRALES}"
             )
-            messagebox.showinfo(
+            self._mostrar_info(
                 "Entrenamiento finalizado",
                 "El modelo ha sido entrenado correctamente.",
             )
         except Exception as e:
             self.agregar_linea_estado(f"[ERROR] Durante el entrenamiento: {e}")
-            messagebox.showerror("Error en entrenamiento", str(e))
+            self._mostrar_error("Error en entrenamiento", str(e))
 
     # ------------------------------------------------------------------
     def cargar_umbrales_interfaz(self):
         try:
             self.umbrales = cargar_umbrales_desde_archivo()
             self.agregar_linea_estado("Umbrales cargados correctamente.")
-            messagebox.showinfo("Umbrales cargados", "Listo para reconocer comandos.")
+            self._mostrar_info("Umbrales cargados", "Listo para reconocer comandos.")
         except Exception as e:
             self.agregar_linea_estado(f"[ERROR] Al cargar umbrales: {e}")
-            messagebox.showerror("Error al cargar umbrales", str(e))
+            self._mostrar_error("Error al cargar umbrales", str(e))
 
     # ------------------------------------------------------------------
     def seleccionar_imagen(self):
         ruta = filedialog.askopenfilename(
             title="Seleccione la imagen base",
             filetypes=[
-                ("Imágenes", "*.png;*.jpg;*.jpeg;*.bmp"),
+                ("Imagenes", "*.png;*.jpg;*.jpeg;*.bmp"),
                 ("Todos los archivos", "*.*"),
             ],
         )
@@ -147,41 +168,41 @@ class AplicacionReconocimiento(tb.Window):
             self.agregar_linea_estado(
                 "Primero debe cargar los umbrales (paso 2) antes de reconocer."
             )
-            messagebox.showwarning(
+            self._mostrar_advertencia(
                 "Umbrales no cargados",
                 "Por favor cargue los umbrales entrenados antes de reconocer.",
             )
             return
 
-        self.agregar_linea_estado("Grabando audio desde el micrófono...")
+        self.agregar_linea_estado("Grabando audio desde el microfono...")
         senal = grabar_audio_microfono()
 
-        self.agregar_linea_estado("Procesando señal y calculando energías...")
+        self.agregar_linea_estado("Procesando senal y calculando energias...")
         vector_energias = procesar_senal_para_reconocimiento(senal)
 
-        comando, distancia = reconocer_comando_por_energia(
+        comando, puntaje = reconocer_comando_por_energia(
             vector_energias, self.umbrales
         )
 
         if comando is None:
-            mensaje = (
-                "No se reconoció ningún comando dentro del margen de error máximo del 5 %."  # noqa: E501
-            )
+            mensaje = "No se reconocio ningun comando dentro de los umbrales entrenados."
             self.agregar_linea_estado(mensaje)
-            messagebox.showinfo("Resultado", mensaje)
+            self._mostrar_info("Resultado", mensaje)
         else:
-            mensaje = f"Comando reconocido: {comando} (distancia = {distancia:.5e})"
+            etiqueta = ETIQUETAS_COMANDOS.get(comando, comando)
+            mensaje = f"Comando reconocido: {etiqueta} (puntaje = {puntaje:.5e})"
             self.agregar_linea_estado(mensaje)
-            messagebox.showinfo("Resultado", mensaje)
+            self._mostrar_info("Resultado", mensaje)
 
             if self.ruta_imagen is not None:
+                etiqueta = ETIQUETAS_COMANDOS.get(comando, comando)
                 self.agregar_linea_estado(
-                    f"Aplicando operación de imagen asociada a {comando}..."
+                    f"Aplicando operacion de imagen asociada a {etiqueta}..."
                 )
                 ejecutar_operacion_imagen(comando, self.ruta_imagen)
             else:
                 self.agregar_linea_estado(
-                    "No se ha seleccionado imagen. Solo se muestra el comando reconocido."  # noqa: E501
+                    "No se ha seleccionado imagen. Solo se muestra el comando reconocido."
                 )
 
 

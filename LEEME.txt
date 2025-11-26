@@ -11,7 +11,8 @@ Requisitos principales:
 Pasos básicos:
 
 1. Cree la carpeta `datos_entrenamiento` en la misma ruta de estos archivos,
-   con tres subcarpetas: `comando_1`, `comando_2`, `comando_3`.
+   con tres subcarpetas: `comando_1`, `comando_2`, `comando_3`
+   (también se aceptan alias `A`, `B`, `C` para compatibilidad).
    En cada una coloque muchas grabaciones .wav del comando correspondiente.
 
 2. Instale las dependencias:

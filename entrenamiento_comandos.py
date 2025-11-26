@@ -14,11 +14,23 @@ from procesamiento_audio import (
     ajustar_longitud_potencia_de_dos,
     calcular_fft_magnitud,
 )
-from banco_filtros import calcular_vector_energias, calcular_estadisticos_energias
+from banco_filtros import (
+    calcular_vector_energias,
+    calcular_estadisticos_energias,
+    normalizar_vector_energia,
+)
 
 
 def obtener_rutas_wav_directorio(directorio):
     return sorted(Path(directorio).glob("*.wav"))
+
+
+def _seleccionar_directorio_existente(rutas_candidatas):
+    """Devuelve la primera ruta que exista; si ninguna existe, usa la primera para informar error."""
+    for ruta in rutas_candidatas:
+        if Path(ruta).exists():
+            return Path(ruta)
+    return Path(rutas_candidatas[0])
 
 
 def procesar_senal_entrenamiento(ruta_archivo):
@@ -29,6 +41,7 @@ def procesar_senal_entrenamiento(ruta_archivo):
     senal = ajustar_longitud_potencia_de_dos(senal)
     espectro_magnitud = calcular_fft_magnitud(senal)
     vector_energias = calcular_vector_energias(espectro_magnitud, NUMERO_SUBBANDAS)
+    vector_energias = normalizar_vector_energia(vector_energias)
     return vector_energias
 
 
@@ -36,7 +49,8 @@ def entrenar_modelo_comandos():
     """Fase de entrenamiento: genera los vectores de umbrales para cada comando."""
     resultados_umbrales = {}
 
-    for nombre_comando, ruta_directorio in DIRECTORIOS_COMANDOS.items():
+    for nombre_comando, rutas_candidatas in DIRECTORIOS_COMANDOS.items():
+        ruta_directorio = _seleccionar_directorio_existente(rutas_candidatas)
         print(f"Entrenando comando: {nombre_comando} en {ruta_directorio}")
         rutas_wav = obtener_rutas_wav_directorio(ruta_directorio)
 

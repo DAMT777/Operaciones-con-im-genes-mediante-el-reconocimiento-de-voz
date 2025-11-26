@@ -1,15 +1,24 @@
 from pathlib import Path
 
 # Directorio base donde se almacenan las grabaciones de entrenamiento.
-# Dentro de esta carpeta debe crear tres subcarpetas: comando_1, comando_2, comando_3
+# Dentro de esta carpeta se recomiendan tres subcarpetas: comando_1, comando_2, comando_3
 RUTA_BASE_DATOS = Path("datos_entrenamiento")
 
 # Directorios de entrenamiento: cada carpeta contiene muchos .wav de ese comando
+# Se aceptan alias (A, B, C) para compatibilidad con datasets existentes.
 DIRECTORIOS_COMANDOS = {
-    "COMANDO_1": RUTA_BASE_DATOS / "comando_1",  # por ejemplo: "abrir"
-    "COMANDO_2": RUTA_BASE_DATOS / "comando_2",  # por ejemplo: "cerrar"
-    "COMANDO_3": RUTA_BASE_DATOS / "comando_3",  # por ejemplo: "guardar"
+    "COMANDO_1": [RUTA_BASE_DATOS / "comando_1", RUTA_BASE_DATOS / "A"],
+    "COMANDO_2": [RUTA_BASE_DATOS / "comando_2", RUTA_BASE_DATOS / "B"],
+    "COMANDO_3": [RUTA_BASE_DATOS / "comando_3", RUTA_BASE_DATOS / "C"],
 }
+
+# Etiquetas legibles asociadas a cada comando
+ETIQUETAS_COMANDOS = {
+    "COMANDO_1": "segmentar",
+    "COMANDO_2": "comprimir",
+    "COMANDO_3": "cifrar",
+}
+
 
 # Parámetros de audio y análisis
 FRECUENCIA_MUESTREO_OBJETIVO = 16000  # Hz
