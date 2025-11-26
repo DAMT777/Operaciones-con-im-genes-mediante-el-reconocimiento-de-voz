@@ -1,0 +1,30 @@
+Proyecto de reconocimiento de comandos de voz (3 comandos) usando bancos de filtros.
+
+Requisitos principales:
+- Python 3.10+
+- numpy
+- scipy
+- sounddevice
+- opencv-python
+- ttkbootstrap
+
+Pasos básicos:
+
+1. Cree la carpeta `datos_entrenamiento` en la misma ruta de estos archivos,
+   con tres subcarpetas: `comando_1`, `comando_2`, `comando_3`.
+   En cada una coloque muchas grabaciones .wav del comando correspondiente.
+
+2. Instale las dependencias:
+
+   pip install numpy scipy sounddevice opencv-python ttkbootstrap
+
+3. Ejecute la interfaz gráfica:
+
+   python interfaz_principal.py
+
+4. En la interfaz:
+   - Use el botón "Entrenar modelo" si todavía no existe `umbrales_comandos.json`.
+   - Use "Cargar umbrales" para leer el archivo de umbrales.
+   - Seleccione una imagen.
+   - Presione "Grabar y reconocer" y diga uno de los tres comandos para que
+     el sistema lo reconozca y aplique la operación de imagen asociada.
