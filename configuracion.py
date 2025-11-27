@@ -20,14 +20,15 @@ ETIQUETAS_COMANDOS = {
 }
 
 
-# Parámetros de audio y análisis
-FRECUENCIA_MUESTREO_OBJETIVO = 16000  # Hz
-NUMERO_SUBBANDAS = 6  # Punto medio para balance entre discriminación y robustez
-MARGEN_ERROR_RELATIVO = 0.05  # 5% - Más tolerante
-MARGEN_PUNTUACION = 0.15  # 15% - Diferencia mínima entre mejor y segundo puntaje
+# Parámetros de audio y análisis (según lab5)
+FRECUENCIA_MUESTREO_OBJETIVO = 16000  # Hz (igual que lab5 usa 44100, pero 16kHz es suficiente para voz)
+N_FFT = 4096  # Tamaño fijo de ventana FFT (como lab5)
+NUMERO_SUBBANDAS = 6  # Número de segmentos temporales (lab5 usa 3, usamos 6)
+VENTANA = "hamming"  # Tipo de ventana (igual que lab5)
 
 # Archivo donde se guardan los umbrales de energía (resultado del entrenamiento)
 ARCHIVO_UMBRALES = Path("umbrales_comandos.json")
 
 # Duración de la grabación desde el micrófono (segundos)
-DURACION_GRABACION_SEGUNDOS = 1.2  # Reducido para capturar mejor la palabra sin silencios
+# Aumentado para capturar palabras completas en español
+DURACION_GRABACION_SEGUNDOS = 1.5  # 1.5 segundos para capturar "segmentar", "comprimir", "cifrar"

@@ -89,29 +89,29 @@ class VentanaCompresionDCT:
         # Label de porcentaje
         tk.Label(
             frame_botones,
-            text="Porcentaje de compresión:",
+            text="Porcentajes (mínimo 3):",
             bg='#2c3e50',
             fg='white',
             font=('Segoe UI', 11)
         ).pack(side=tk.LEFT, padx=8)
         
-        # Entry para porcentaje
-        self.entry_porcentaje = tk.Entry(
+        # Entry para porcentajes
+        self.entry_porcentajes = tk.Entry(
             frame_botones,
-            width=10,
+            width=20,
             font=('Segoe UI', 11),
             justify='center'
         )
-        self.entry_porcentaje.insert(0, "60")
-        self.entry_porcentaje.pack(side=tk.LEFT, padx=5)
+        self.entry_porcentajes.insert(0, "50, 70, 90")
+        self.entry_porcentajes.pack(side=tk.LEFT, padx=5)
         
         tk.Label(
             frame_botones,
-            text="%",
+            text="(Ej: 50, 70, 90)",
             bg='#2c3e50',
-            fg='white',
-            font=('Segoe UI', 11)
-        ).pack(side=tk.LEFT, padx=2)
+            fg='#bdc3c7',
+            font=('Segoe UI', 9)
+        ).pack(side=tk.LEFT, padx=8)
         
         # Botón comprimir
         self.btn_comprimir = tk.Button(
@@ -132,7 +132,7 @@ class VentanaCompresionDCT:
         # Botón descomprimir
         self.btn_descomprimir = tk.Button(
             frame_botones,
-            text="📂 Descomprimir",
+            text="📂 Descomprimir y Guardar",
             command=self.descomprimir,
             bg='#3498db',
             fg='white',
@@ -211,16 +211,16 @@ class VentanaCompresionDCT:
             self.toolbar_actual.destroy()
         
         # Crear figura con tamaño adecuado
-        fig = Figure(figsize=(14, 10), dpi=100)
+        fig = Figure(figsize=(12, 9), dpi=100)
         
         # Imagen original centrada
         ax1 = fig.add_subplot(1, 1, 1)
         ax1.imshow(self.imagen_original, cmap='gray', interpolation='nearest')
-        ax1.set_title("Imagen Original - Lista para Comprimir", fontsize=14, fontweight='bold')
+        ax1.set_title("Imagen Original - Lista para Comprimir", fontsize=14, fontweight='bold', pad=10)
         ax1.axis('on')
         ax1.grid(True, alpha=0.3)
         
-        fig.tight_layout()
+        fig.subplots_adjust(left=0.05, right=0.98, top=0.96, bottom=0.05)
         
         # Crear canvas
         self.canvas_actual = FigureCanvasTkAgg(fig, self.frame_grafico)
@@ -238,30 +238,54 @@ class VentanaCompresionDCT:
     def comprimir(self):
         """Ejecuta la compresión usando DCT-2D manual y muestra resultados."""
         try:
-            # Obtener porcentaje
-            porcentaje = float(self.entry_porcentaje.get())
+            # Obtener y parsear porcentajes
+            porcentajes_texto = self.entry_porcentajes.get()
+            porcentajes = [float(p.strip()) for p in porcentajes_texto.replace(';', ',').split(',') if p.strip()]
             
-            if porcentaje < 0 or porcentaje > 100:
-                messagebox.showerror("Error", "El porcentaje debe estar entre 0 y 100")
+            if len(porcentajes) < 3:
+                messagebox.showerror("Error", "Debe ingresar al menos 3 porcentajes")
                 return
             
-            # Mostrar mensaje de progreso
-            messagebox.showinfo(
-                "Procesando",
-                "Comprimiendo imagen usando DCT-2D manual...\n"
-                "Este proceso puede tardar varios segundos.\n\n"
+            for p in porcentajes:
+                if p < 0 or p > 100:
+                    messagebox.showerror("Error", "Todos los porcentajes deben estar entre 0 y 100")
+                    return
+            
+            # Deshabilitar botones durante procesamiento
+            self.btn_comprimir.config(state=tk.DISABLED)
+            self.btn_descomprimir.config(state=tk.DISABLED)
+            
+            # Actualizar métricas con mensaje de progreso
+            self.texto_metricas.config(state=tk.NORMAL)
+            self.texto_metricas.delete(1.0, tk.END)
+            self.texto_metricas.insert(1.0, 
+                "⏳ PROCESANDO...\n"
+                f"{'='*30}\n\n"
+                "Aplicando DCT-2D manual\n"
+                "por bloques de 8x8...\n\n"
+                "Este proceso puede\n"
+                "tardar entre 10-60\n"
+                "segundos dependiendo\n"
+                "del tamaño de la imagen.\n\n"
                 "Por favor espere..."
             )
+            self.texto_metricas.config(state=tk.DISABLED)
             self.ventana.update()
             
             # Comprimir (también guarda DCT completa)
             from compresion_dct import aplicar_dct_bloques
+            print("Aplicando DCT-2D completa...")
             self.dct_completa, _ = aplicar_dct_bloques(self.imagen_original)
             
+            # Usar el primer porcentaje por ahora (TODO: implementar múltiples)
+            porcentaje = porcentajes[0]
+            
+            print(f"Comprimiendo al {porcentaje}%...")
             self.coeficientes_dct, self.forma_original, self.num_coefs_eliminados = \
                 comprimir_imagen_dct(self.imagen_original, porcentaje, tamanio_bloque=8)
             
             # Descomprimir para visualizar
+            print("Reconstruyendo imagen...")
             self.imagen_comprimida = descomprimir_imagen_dct(
                 self.coeficientes_dct,
                 self.forma_original,
@@ -277,57 +301,143 @@ class VentanaCompresionDCT:
                 total_coefs
             )
             
+            print("Generando visualización...")
             # Mostrar visualización
             self.mostrar_resultados_compresion(porcentaje)
             
             # Habilitar botón descomprimir
+            self.btn_comprimir.config(state=tk.NORMAL)
             self.btn_descomprimir.config(state=tk.NORMAL)
             
-            messagebox.showinfo(
-                "Éxito",
-                f"¡Imagen comprimida exitosamente!\n\n"
-                f"Compresión: {self.metricas['tasa_compresion']:.2f}%\n"
-                f"PSNR: {self.metricas['psnr']:.2f} dB\n"
-                f"MSE: {self.metricas['mse']:.2f}"
-            )
+            print("✓ Compresión completada exitosamente")
             
         except ValueError:
+            self.btn_comprimir.config(state=tk.NORMAL)
             messagebox.showerror("Error", "Ingrese un valor numérico válido para el porcentaje")
         except Exception as e:
+            self.btn_comprimir.config(state=tk.NORMAL)
             messagebox.showerror("Error", f"Error durante la compresión:\n{str(e)}")
             import traceback
             traceback.print_exc()
     
     def descomprimir(self):
-        """Descomprime la imagen y la guarda."""
+        """Muestra ventana comparando imagen comprimida vs descomprimida con sus mapas DCT."""
         try:
             if self.imagen_comprimida is None:
                 messagebox.showwarning("Advertencia", "Primero debe comprimir una imagen")
                 return
             
-            # Pedir nombre de archivo para guardar
-            archivo_salida = filedialog.asksaveasfilename(
-                title="Guardar imagen descomprimida",
-                defaultextension=".png",
-                filetypes=[
-                    ("PNG", "*.png"),
-                    ("JPEG", "*.jpg"),
-                    ("Todos los archivos", "*.*")
-                ]
+            # Crear ventana de comparación
+            ventana_decomp = tk.Toplevel(self.ventana)
+            ventana_decomp.title("Descompresión DCT - Comparación Detallada")
+            ventana_decomp.geometry("1600x900")
+            ventana_decomp.configure(bg='#2c3e50')
+            
+            # Título
+            tk.Label(
+                ventana_decomp,
+                text="DESCOMPRESIÓN MEDIANTE IDCT-2D",
+                bg='#2c3e50',
+                fg='white',
+                font=('Segoe UI', 16, 'bold'),
+                pady=12
+            ).pack(fill=tk.X)
+            
+            # Frame para el gráfico
+            frame_grafico = tk.Frame(ventana_decomp, bg='white')
+            frame_grafico.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Calcular DCT de la imagen comprimida para visualización
+            from compresion_dct import aplicar_dct_bloques
+            dct_comprimida, _ = aplicar_dct_bloques(self.imagen_comprimida)
+            
+            # Crear figura con 4 paneles (2x2)
+            fig = Figure(figsize=(14, 9), dpi=100)
+            
+            # Panel 1: Imagen comprimida
+            ax1 = fig.add_subplot(2, 2, 1)
+            ax1.imshow(self.imagen_comprimida, cmap='gray', interpolation='nearest')
+            porcentaje = (self.num_coefs_eliminados / self.coeficientes_dct.size) * 100
+            ax1.set_title(f'Imagen Comprimida\n({porcentaje:.1f}% coef. eliminados)', 
+                         fontsize=11, fontweight='bold', pad=8)
+            ax1.axis('on')
+            ax1.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+            
+            # Panel 2: Imagen descomprimida (misma, ya que IDCT se aplicó)
+            ax2 = fig.add_subplot(2, 2, 2)
+            ax2.imshow(self.imagen_comprimida, cmap='gray', interpolation='nearest')
+            ax2.set_title('Imagen Descomprimida\n(Aplicando IDCT-2D)', 
+                         fontsize=11, fontweight='bold', pad=8)
+            ax2.axis('on')
+            ax2.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+            
+            # Panel 3: Mapa DCT de imagen comprimida (filtrada)
+            ax3 = fig.add_subplot(2, 2, 3)
+            dct_log_filtrado = np.log1p(np.abs(self.coeficientes_dct))
+            im3 = ax3.imshow(dct_log_filtrado, cmap='inferno', interpolation='nearest', aspect='auto')
+            ax3.set_title(f'Mapa DCT Comprimida (log)\n({porcentaje:.1f}% eliminados)', 
+                         fontsize=10, fontweight='bold', pad=8)
+            ax3.set_xlabel('Frecuencia horizontal', fontsize=8)
+            ax3.set_ylabel('Frecuencia vertical', fontsize=8)
+            ax3.grid(True, alpha=0.2, linestyle=':', linewidth=0.5)
+            ax3.tick_params(labelsize=7)
+            cbar3 = fig.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
+            cbar3.set_label('log(1+|DCT|)', rotation=270, labelpad=10, fontsize=7)
+            cbar3.ax.tick_params(labelsize=7)
+            
+            # Panel 4: Mapa DCT de imagen descomprimida
+            ax4 = fig.add_subplot(2, 2, 4)
+            dct_log_descomprimida = np.log1p(np.abs(dct_comprimida))
+            im4 = ax4.imshow(dct_log_descomprimida, cmap='inferno', interpolation='nearest', aspect='auto')
+            ax4.set_title('Mapa DCT Descomprimida (log)\n(Después de IDCT-2D)', 
+                         fontsize=10, fontweight='bold', pad=8)
+            ax4.set_xlabel('Frecuencia horizontal', fontsize=8)
+            ax4.set_ylabel('Frecuencia vertical', fontsize=8)
+            ax4.grid(True, alpha=0.2, linestyle=':', linewidth=0.5)
+            ax4.tick_params(labelsize=7)
+            cbar4 = fig.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
+            cbar4.set_label('log(1+|DCT|)', rotation=270, labelpad=10, fontsize=7)
+            cbar4.ax.tick_params(labelsize=7)
+            
+            # Ajustar espaciado
+            fig.subplots_adjust(left=0.06, right=0.97, top=0.94, bottom=0.06, hspace=0.32, wspace=0.22)
+            
+            # Agregar canvas
+            canvas = FigureCanvasTkAgg(fig, frame_grafico)
+            canvas.draw()
+            
+            # Toolbar
+            toolbar_frame = tk.Frame(frame_grafico)
+            toolbar_frame.pack(side=tk.TOP, fill=tk.X)
+            toolbar = NavigationToolbar2Tk(canvas, toolbar_frame)
+            toolbar.update()
+            
+            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+            
+            # Frame inferior con métricas
+            frame_info = tk.Frame(ventana_decomp, bg='#34495e', pady=10)
+            frame_info.pack(fill=tk.X, padx=10, pady=(0, 10))
+            
+            info_texto = (
+                f"📊 MÉTRICAS DE DESCOMPRESIÓN:   "
+                f"PSNR: {self.metricas['psnr']:.2f} dB   |   "
+                f"MSE: {self.metricas['mse']:.2f}   |   "
+                f"Compresión: {self.metricas['tasa_compresion']:.2f}%   |   "
+                f"Coeficientes retenidos: {self.coeficientes_dct.size - self.num_coefs_eliminados:,} / {self.coeficientes_dct.size:,}"
             )
             
-            if archivo_salida:
-                # Guardar imagen descomprimida
-                cv2.imwrite(archivo_salida, self.imagen_comprimida)
-                
-                messagebox.showinfo(
-                    "Éxito",
-                    f"Imagen descomprimida guardada en:\n{archivo_salida}\n\n"
-                    f"Calidad PSNR: {self.metricas['psnr']:.2f} dB"
-                )
-                
+            tk.Label(
+                frame_info,
+                text=info_texto,
+                bg='#34495e',
+                fg='white',
+                font=('Consolas', 10)
+            ).pack()
+            
         except Exception as e:
-            messagebox.showerror("Error", f"Error al guardar imagen:\n{str(e)}")
+            messagebox.showerror("Error", f"Error al descomprimir:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def mostrar_resultados_compresion(self, porcentaje):
         """Muestra visualización de 4 paneles con resultados de compresión."""
@@ -337,43 +447,58 @@ class VentanaCompresionDCT:
         if self.toolbar_actual:
             self.toolbar_actual.destroy()
         
-        # Crear nueva figura con 4 subplots - tamaño igual a lab6
-        fig = Figure(figsize=(14, 10), dpi=100)
+        # Crear figura con 4 paneles 2x2 - optimizada para ocupar espacio
+        fig = Figure(figsize=(12, 9), dpi=100)
         
+        # FILA SUPERIOR: Imágenes
         # Panel 1: Imagen original
         ax1 = fig.add_subplot(2, 2, 1)
         ax1.imshow(self.imagen_original, cmap='gray', interpolation='nearest')
-        ax1.set_title('Imagen original', fontsize=12, fontweight='bold')
+        ax1.set_title('Imagen Original', fontsize=10, fontweight='bold', pad=3)
         ax1.axis('on')
-        ax1.grid(True, alpha=0.3)
+        ax1.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        ax1.tick_params(labelsize=7)
         
-        # Panel 2: Imagen reconstruida
+        # Panel 2: Imagen reconstruida/comprimida
         ax2 = fig.add_subplot(2, 2, 2)
         ax2.imshow(self.imagen_comprimida, cmap='gray', interpolation='nearest')
-        ax2.set_title(f'Reconstruida ({porcentaje:.1f}% coef. eliminados)', 
-                     fontsize=12, fontweight='bold')
+        ax2.set_title(f'Comprimida ({porcentaje:.1f}% coef. eliminados)', 
+                     fontsize=10, fontweight='bold', pad=3)
         ax2.axis('on')
-        ax2.grid(True, alpha=0.3)
+        ax2.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        ax2.tick_params(labelsize=7)
         
-        # Panel 3: Mapa DCT (escala logarítmica)
+        # FILA INFERIOR: Mapas DCT
+        # Panel 3: Mapa DCT completo (sin filtrar)
         ax3 = fig.add_subplot(2, 2, 3)
-        dct_log = np.log1p(np.abs(self.dct_completa))
-        im3 = ax3.imshow(dct_log, cmap='inferno', interpolation='nearest')
-        ax3.set_title('Mapa DCT filtrada (log)', fontsize=12, fontweight='bold')
-        ax3.axis('on')
-        ax3.grid(True, alpha=0.3)
-        fig.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
+        dct_log_completo = np.log1p(np.abs(self.dct_completa))
+        im3 = ax3.imshow(dct_log_completo, cmap='inferno', interpolation='nearest', aspect='auto')
+        ax3.set_title('Mapa DCT Completo', 
+                     fontsize=9, fontweight='bold', pad=3)
+        ax3.set_xlabel('Frecuencia horizontal', fontsize=7)
+        ax3.set_ylabel('Frecuencia vertical', fontsize=7)
+        ax3.grid(True, alpha=0.2, linestyle=':', linewidth=0.5)
+        ax3.tick_params(labelsize=6)
+        cbar3 = fig.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
+        cbar3.set_label('log(1+|DCT|)', rotation=270, labelpad=8, fontsize=6)
+        cbar3.ax.tick_params(labelsize=6)
         
-        # Panel 4: Mapa de diferencia
+        # Panel 4: Mapa DCT filtrado
         ax4 = fig.add_subplot(2, 2, 4)
-        diferencia = np.abs(self.imagen_original.astype(float) - self.imagen_comprimida.astype(float))
-        im4 = ax4.imshow(diferencia, cmap='hot', interpolation='nearest')
-        ax4.set_title('Diferencia absoluta |Original - Reconstruida|', fontsize=12, fontweight='bold')
-        ax4.axis('on')
-        ax4.grid(True, alpha=0.3)
-        fig.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
+        dct_log_filtrado = np.log1p(np.abs(self.coeficientes_dct))
+        im4 = ax4.imshow(dct_log_filtrado, cmap='inferno', interpolation='nearest', aspect='auto')
+        ax4.set_title(f'Mapa DCT Filtrado ({porcentaje:.1f}%)', 
+                     fontsize=9, fontweight='bold', pad=3)
+        ax4.set_xlabel('Frecuencia horizontal', fontsize=7)
+        ax4.set_ylabel('Frecuencia vertical', fontsize=7)
+        ax4.grid(True, alpha=0.2, linestyle=':', linewidth=0.5)
+        ax4.tick_params(labelsize=6)
+        cbar4 = fig.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
+        cbar4.set_label('log(1+|DCT|)', rotation=270, labelpad=8, fontsize=6)
+        cbar4.ax.tick_params(labelsize=6)
         
-        fig.tight_layout()
+        # Ajustar con subplots_adjust para control preciso - márgenes mínimos
+        fig.subplots_adjust(left=0.05, right=0.98, top=0.96, bottom=0.04, hspace=0.25, wspace=0.18)
         
         # Crear canvas de matplotlib
         self.canvas_actual = FigureCanvasTkAgg(fig, master=self.frame_grafico)

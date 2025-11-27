@@ -1,10 +1,13 @@
 import json
 from pathlib import Path
+import numpy as np
 
 from configuracion import (
     DIRECTORIOS_COMANDOS,
     FRECUENCIA_MUESTREO_OBJETIVO,
+    N_FFT,
     NUMERO_SUBBANDAS,
+    VENTANA,
     ARCHIVO_UMBRALES,
 )
 from procesamiento_audio import (
@@ -17,9 +20,7 @@ from procesamiento_audio import (
     calcular_fft_magnitud,
 )
 from banco_filtros import (
-    calcular_vector_energias,
     calcular_estadisticos_energias,
-    normalizar_vector_energia,
 )
 
 
@@ -36,23 +37,43 @@ def _seleccionar_directorio_existente(rutas_candidatas):
 
 
 def procesar_senal_entrenamiento(ruta_archivo):
-    """Aplica todos los pasos del documento a una sola grabación de entrenamiento.
-    Sigue la teoría: acondicionamiento -> FFT -> banco de filtros -> energías."""
-    fs_original, senal = cargar_senal_desde_wav(ruta_archivo)
-    senal = re_muestrear_senal(fs_original, senal)
-    senal = eliminar_silencio_voz(senal, FRECUENCIA_MUESTREO_OBJETIVO)  # Eliminar silencios
-    senal = aplicar_preenfasis(senal)  # Pre-énfasis para voz
-    senal = filtrar_ruido_pasabajos(senal, FRECUENCIA_MUESTREO_OBJETIVO)
-    senal = ajustar_longitud_potencia_de_dos(senal)
-    espectro_magnitud = calcular_fft_magnitud(senal)
-    vector_energias = calcular_vector_energias(espectro_magnitud, NUMERO_SUBBANDAS)
-    vector_energias = normalizar_vector_energia(vector_energias)
+    """Procesa una grabación de entrenamiento (método EXACTO del lab5)."""
+    import soundfile as sf
+    from banco_filtros import calcular_vector_energias_temporal
+    
+    # Cargar archivo WAV (como lab5)
+    x, fs_file = sf.read(str(ruta_archivo), dtype='float32')
+    
+    # Si es estereo, convertir a mono
+    if x.ndim > 1:
+        x = x.mean(axis=1)
+    
+    # Ajustar a N muestras (como lab5: truncar o rellenar)
+    x = x[:N_FFT] if len(x) >= N_FFT else np.pad(x, (0, N_FFT - len(x)))
+    
+    # Calcular energías (incluye TODO el preprocesamiento)
+    vector_energias = calcular_vector_energias_temporal(
+        x,
+        fs=fs_file,  # Usar fs del archivo (lab5 no remuestrea en entrenamiento)
+        N=N_FFT,
+        K=NUMERO_SUBBANDAS,
+        window=VENTANA
+    )
+    
     return vector_energias
 
 
 def entrenar_modelo_comandos():
-    """Fase de entrenamiento: genera los vectores de umbrales para cada comando."""
-    resultados_umbrales = {}
+    """Fase de entrenamiento: guarda PATRONES DE REFERENCIA (método EXACTO lab5)."""
+    
+    # Estructura como lab5
+    resultados = {
+        "fs": FRECUENCIA_MUESTREO_OBJETIVO,
+        "N": N_FFT,
+        "K": NUMERO_SUBBANDAS,
+        "window": VENTANA,
+        "commands": {}
+    }
 
     for nombre_comando, rutas_candidatas in DIRECTORIOS_COMANDOS.items():
         ruta_directorio = _seleccionar_directorio_existente(rutas_candidatas)
@@ -63,24 +84,33 @@ def entrenar_modelo_comandos():
             print(f"  [ADVERTENCIA] No se encontraron archivos .wav en {ruta_directorio}")
             continue
 
-        lista_vectores_energias = []
+        # GUARDAR TODOS LOS PATRONES (como lab5)
+        patrones = []
 
         for ruta_wav in rutas_wav:
             print(f"    Procesando: {ruta_wav.name}")
             vector_energias = procesar_senal_entrenamiento(ruta_wav)
-            lista_vectores_energias.append(vector_energias)
+            patrones.append(vector_energias.tolist())
 
-        medias, desviaciones = calcular_estadisticos_energias(lista_vectores_energias)
+        # Calcular estadísticas para información
+        matriz = np.array(patrones)
+        medias = np.mean(matriz, axis=0)
+        desviaciones = np.std(matriz, axis=0, ddof=0)
 
-        resultados_umbrales[nombre_comando] = {
-            "medias": medias.tolist(),
-            "desviaciones": desviaciones.tolist(),
+        # Guardar TODO (patrones + estadísticas)
+        resultados["commands"][nombre_comando] = {
+            "mean": medias.tolist(),
+            "std": desviaciones.tolist(),
+            "count": len(patrones),
+            "_patterns": patrones  # TODOS los patrones de referencia
         }
+        
+        print(f"    ✓ {len(patrones)} patrones guardados")
 
     with open(ARCHIVO_UMBRALES, "w", encoding="utf-8") as f:
-        json.dump(resultados_umbrales, f, indent=4, ensure_ascii=False)
+        json.dump(resultados, f, indent=4, ensure_ascii=False)
 
-    print(f"\nEntrenamiento finalizado. Umbrales guardados en: {ARCHIVO_UMBRALES}")
+    print(f"\n✓ Entrenamiento finalizado. Patrones guardados en: {ARCHIVO_UMBRALES}")
 
 
 if __name__ == "__main__":

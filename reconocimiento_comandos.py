@@ -7,9 +7,9 @@ import cv2
 from configuracion import (
     ARCHIVO_UMBRALES,
     FRECUENCIA_MUESTREO_OBJETIVO,
+    N_FFT,
     NUMERO_SUBBANDAS,
-    MARGEN_ERROR_RELATIVO,
-    MARGEN_PUNTUACION,
+    VENTANA,
 )
 from procesamiento_audio import (
     aplicar_preenfasis,
@@ -19,11 +19,8 @@ from procesamiento_audio import (
 )
 from banco_filtros import calcular_vector_energias, normalizar_vector_energia
 
-# Z-score maximo permitido por subbanda para aceptar un comando
-UMBRAL_Z_MAX = 4.0  # Z-score máximo permitido en cualquier subbanda (relajado)
-UMBRAL_Z_PROMEDIO = 2.5  # Z-score promedio máximo permitido (relajado)
-EPSILON_DESVIACION = 1e-9
-MIN_CONFIANZA_RELATIVA = 0.15  # 15% mínimo de diferencia entre mejor y segundo (relajado)
+# Constantes para el reconocimiento (método lab5)
+EPSILON_DESVIACION = 1e-6  # Para evitar división por cero en normalización
 
 
 def cargar_umbrales_desde_archivo():
@@ -38,133 +35,80 @@ def cargar_umbrales_desde_archivo():
 
 
 def procesar_senal_para_reconocimiento(senal):
-    """Reproduce el mismo flujo de procesamiento usado en el entrenamiento.
-    CRÍTICO: debe seguir EXACTAMENTE los mismos pasos que en entrenamiento."""
-    senal_preenfasis = aplicar_preenfasis(senal)
-    senal_filtrada = filtrar_ruido_pasabajos(senal_preenfasis, FRECUENCIA_MUESTREO_OBJETIVO)
-    senal_ajustada = ajustar_longitud_potencia_de_dos(senal_filtrada)
-    espectro_magnitud = calcular_fft_magnitud(senal_ajustada)
-    vector_energias = calcular_vector_energias(espectro_magnitud, NUMERO_SUBBANDAS)
-    vector_energias = normalizar_vector_energia(vector_energias)
+    """Procesa señal para reconocimiento (método EXACTO del lab5).
+    
+    La señal ya viene con N muestras exactas de grabar_audio_microfono().
+    """
+    from banco_filtros import calcular_vector_energias_temporal
+    
+    # Calcular energías usando método lab5 (incluye todo el preprocesamiento)
+    vector_energias = calcular_vector_energias_temporal(
+        senal, 
+        fs=FRECUENCIA_MUESTREO_OBJETIVO,
+        N=N_FFT,
+        K=NUMERO_SUBBANDAS,
+        window=VENTANA
+    )
+    
     return vector_energias
 
 
-def _desviaciones_seguras(desviaciones, medias):
-    """Piso minimo de desviacion para evitar divisiones por cero.
-    Usa un mínimo absoluto más conservador."""
-    tolerancia_relativa = MARGEN_ERROR_RELATIVO * np.abs(medias)
-    # Piso mínimo absoluto más conservador
-    piso_minimo = np.maximum(tolerancia_relativa, 1e-8)
-    return np.maximum(desviaciones, piso_minimo + EPSILON_DESVIACION)
-
-
 def reconocer_comando_por_energia(vector_energias, umbrales):
-    """Devuelve el comando reconocido usando múltiples métricas de similitud.
-    Implementa validación estricta para evitar confusiones entre comandos similares."""
-    vector_normalizado = normalizar_vector_energia(vector_energias)
+    """Devuelve el comando reconocido usando DISTANCIA MÍNIMA A PATRONES (método lab5).
     
-    print(f"\n  [DEBUG] Vector de entrada normalizado: {vector_normalizado}")
+    MÉTODO CORRECTO LAB5:
+    - Compara con TODOS los patrones de referencia de cada comando
+    - Para cada comando, calcula distancia mínima entre todos sus patrones
+    - El comando con menor distancia mínima gana
+    """
+    E = vector_energias
     
-    resultados = []
-    rechazados = []
+    print(f"\n  [ANÁLISIS] Vector entrada: {E}")
+    print(f"  [ANÁLISIS] Suma: {np.sum(E):.6f}")
+    print(f"  [ANÁLISIS] Min: {np.min(E):.6f}, Max: {np.max(E):.6f}")
     
-    for nombre_comando, datos_comando in umbrales.items():
-        medias = np.array(datos_comando["medias"], dtype=np.float32)
-        desviaciones = np.array(datos_comando["desviaciones"], dtype=np.float32)
-        desv_seguras = _desviaciones_seguras(desviaciones, medias)
-        
-        # Calcular Z-scores
-        zscores = np.abs(vector_normalizado - medias) / desv_seguras
-        max_z = float(np.max(zscores))
-        promedio_z = float(np.mean(zscores))
-        
-        # Filtro 1: Z-score máximo no debe exceder umbral
-        if max_z > UMBRAL_Z_MAX:
-            rechazados.append((nombre_comando, f"Z-max={max_z:.2f} > {UMBRAL_Z_MAX}"))
-            continue
-        
-        # Filtro 2: Z-score promedio debe ser razonable
-        if promedio_z > UMBRAL_Z_PROMEDIO:
-            rechazados.append((nombre_comando, f"Z-prom={promedio_z:.2f} > {UMBRAL_Z_PROMEDIO}"))
-            continue
-        
-        # Métrica 1: Suma de Z-scores (menor es mejor)
-        puntaje_z = float(np.sum(zscores))
-        
-        # Métrica 2: Distancia euclidiana normalizada
-        distancia_euclidiana = float(np.sqrt(np.sum((vector_normalizado - medias) ** 2)))
-        
-        # Métrica 3: Distancia de Manhattan
-        distancia_manhattan = float(np.sum(np.abs(vector_normalizado - medias)))
-        
-        # Métrica 4: Correlación (mayor es mejor, así que invertimos)
-        correlacion = float(np.corrcoef(vector_normalizado, medias)[0, 1])
-        puntaje_correlacion = 1.0 - correlacion if not np.isnan(correlacion) else 1.0
-        
-        # Puntaje combinado (menor es mejor)
-        puntaje_final = (
-            0.40 * puntaje_z +           # 40% peso en Z-scores
-            0.25 * distancia_euclidiana * 100 +  # 25% peso en distancia euclidiana
-            0.20 * distancia_manhattan * 100 +   # 20% peso en distancia Manhattan
-            0.15 * puntaje_correlacion * 10      # 15% peso en correlación
-        )
-        
-        resultados.append({
-            'nombre': nombre_comando,
-            'puntaje_final': puntaje_final,
-            'puntaje_z': puntaje_z,
-            'max_z': max_z,
-            'promedio_z': promedio_z,
-            'distancia_euclidiana': distancia_euclidiana,
-            'correlacion': correlacion
-        })
+    distancias_minimas = {}
     
-    if not resultados:
-        print("\n  [RECHAZADO] Ningún comando pasó los umbrales")
-        for cmd, razon in rechazados:
-            print(f"    • {cmd}: {razon}")
-        return None, float("inf")
+    # Obtener comandos del formato correcto
+    commands = umbrales.get("commands", umbrales)
     
-    # Ordenar por puntaje final (menor es mejor)
-    resultados.sort(key=lambda x: x['puntaje_final'])
-    
-    mejor = resultados[0]
-    mejor_comando = mejor['nombre']
-    mejor_puntaje = mejor['puntaje_final']
-    
-    # Validación de confianza: debe haber diferencia clara con el segundo
-    if len(resultados) > 1:
-        segundo = resultados[1]
-        segundo_puntaje = segundo['puntaje_final']
+    for nombre_comando, datos_comando in commands.items():
+        # Obtener patrones de referencia
+        patrones = datos_comando.get("_patterns", [])
         
-        # Calcular diferencia relativa
-        if mejor_puntaje > 0:
-            diferencia_relativa = (segundo_puntaje - mejor_puntaje) / mejor_puntaje
+        if not patrones:
+            # Fallback: usar media si no hay patrones
+            mean = np.array(datos_comando.get("mean", datos_comando.get("medias", [])), dtype=float)
+            d_min = np.linalg.norm(E - mean)
+            print(f"  {nombre_comando}: usando MEDIA (dist={d_min:.4f})")
         else:
-            diferencia_relativa = float('inf')
+            # MÉTODO LAB5: Distancia mínima a TODOS los patrones
+            distancias = []
+            for patron in patrones:
+                patron_array = np.array(patron, dtype=float)
+                dist = np.linalg.norm(E - patron_array)
+                distancias.append(dist)
+            
+            d_min = min(distancias)
+            d_mean = np.mean(distancias)
+            print(f"  {nombre_comando}: min={d_min:.4f}, mean={d_mean:.4f} ({len(patrones)} patrones)")
         
-        # Rechazar si no hay suficiente confianza
-        if diferencia_relativa < MIN_CONFIANZA_RELATIVA:
-            print(f"\n  [RECHAZADO] Ambigüedad detectada:")
-            print(f"    1° {mejor_comando}: {mejor_puntaje:.4f}")
-            print(f"    2° {segundo['nombre']}: {segundo_puntaje:.4f}")
-            print(f"    Diferencia relativa: {diferencia_relativa:.2%} < {MIN_CONFIANZA_RELATIVA:.2%}")
-            print(f"    Sugerencia: Hablar más claro o re-entrenar")
-            return None, mejor_puntaje
+        distancias_minimas[nombre_comando] = float(d_min)
     
-    # Mostrar información de diagnóstico
-    print(f"\n  [RECONOCIDO] {mejor_comando}")
-    print(f"    Puntaje final: {mejor_puntaje:.4f}")
-    print(f"    Z-score max: {mejor['max_z']:.3f} (umbral: {UMBRAL_Z_MAX})")
-    print(f"    Z-score prom: {mejor['promedio_z']:.3f} (umbral: {UMBRAL_Z_PROMEDIO})")
-    print(f"    Correlación: {mejor['correlacion']:.4f}")
+    # El comando con menor distancia mínima gana
+    mejor_comando = min(distancias_minimas.items(), key=lambda kv: kv[1])[0]
+    mejor_dist = distancias_minimas[mejor_comando]
     
-    if len(resultados) > 1:
-        print(f"\n  Otros candidatos:")
-        for i, r in enumerate(resultados[1:], 2):
-            print(f"    {i}° {r['nombre']}: puntaje={r['puntaje_final']:.4f}, Z-max={r['max_z']:.3f}")
+    print(f"\n  ✓ GANADOR: {mejor_comando} (dist_min={mejor_dist:.4f})")
     
-    return mejor_comando, mejor_puntaje
+    # Mostrar ranking completo
+    sorted_dists = sorted(distancias_minimas.items(), key=lambda x: x[1])
+    print(f"\n  Ranking:")
+    for i, (label, dist) in enumerate(sorted_dists, 1):
+        marca = "★" if i == 1 else " "
+        print(f"    {marca} {i}° {label}: {dist:.4f}")
+    
+    return mejor_comando, mejor_dist
 
 
 def cargar_imagen_opencv_unicode(ruta):
@@ -183,42 +127,35 @@ def cargar_imagen_opencv_unicode(ruta):
 def ejecutar_operacion_imagen(comando, ruta_imagen):
     """Aplica una operacion de ejemplo sobre una imagen de acuerdo al comando reconocido."""
     import cv2
+    import tkinter as tk
     
-    # Importar la ventana de compresión
-    if comando == "COMANDO_2":  # comprimir
-        from ventana_compresion import VentanaCompresionDCT
-        import tkinter as tk
-        
-        # Crear ventana temporal si no existe
-        try:
-            root = tk._default_root
-            if root is None:
-                root = tk.Tk()
-                root.withdraw()
-        except:
+    # Crear ventana temporal si no existe
+    try:
+        root = tk._default_root
+        if root is None:
             root = tk.Tk()
             root.withdraw()
-        
-        # Abrir ventana de compresión DCT
+    except:
+        root = tk.Tk()
+        root.withdraw()
+    
+    # COMANDO_1: Segmentación con K-means
+    if comando == "COMANDO_1":  # segmentar
+        from ventana_segmentacion import VentanaSegmentacionKMeans
+        VentanaSegmentacionKMeans(root, ruta_imagen)
+        return
+    
+    # COMANDO_2: Compresión con DCT-2D
+    elif comando == "COMANDO_2":  # comprimir
+        from ventana_compresion import VentanaCompresionDCT
         VentanaCompresionDCT(root, ruta_imagen)
         return
-
-    # Cargar imagen con soporte Unicode
-    imagen = cargar_imagen_opencv_unicode(str(ruta_imagen))
-    if imagen is None:
-        print(f"No se pudo cargar la imagen: {ruta_imagen}")
-        print("Sugerencia: Evite rutas con tildes, ñ u otros caracteres especiales.")
+    
+    # COMANDO_3: Cifrado (por implementar)
+    elif comando == "COMANDO_3":  # cifrar
+        from ventana_cifrado import VentanaCifradoFrDCT
+        VentanaCifradoFrDCT(root, ruta_imagen)
         return
-
-    if comando == "COMANDO_1":
-        imagen_salida = cv2.rotate(imagen, cv2.ROTATE_90_CLOCKWISE)
-    elif comando == "COMANDO_3":
-        gris = cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY)
-        imagen_salida = cv2.Canny(gris, 80, 160)
+    
     else:
         print("Comando no reconocido para operacion de imagen.")
-        return
-
-    cv2.imshow(f"Resultado para {comando}", imagen_salida)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()

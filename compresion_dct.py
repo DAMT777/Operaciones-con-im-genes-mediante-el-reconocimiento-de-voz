@@ -49,18 +49,28 @@ def dct_2d_manual(bloque):
     N, M = bloque.shape
     alfa, beta = calcular_coeficientes_dct(N, M)
     
+    # Precalcular matrices de cosenos para optimizar
+    cos_matrix_n = np.zeros((N, N))
+    cos_matrix_m = np.zeros((M, M))
+    
+    for k in range(N):
+        for n in range(N):
+            cos_matrix_n[k, n] = np.cos((2 * n + 1) * np.pi * k / (2 * N))
+    
+    for l in range(M):
+        for m in range(M):
+            cos_matrix_m[l, m] = np.cos((2 * m + 1) * np.pi * l / (2 * M))
+    
     # Matriz de salida
     X = np.zeros((N, M), dtype=np.float64)
     
-    # Aplicar la fórmula DCT-2D
+    # Aplicar la fórmula DCT-2D usando matrices precalculadas
     for k in range(N):
         for l in range(M):
             suma = 0.0
             for n in range(N):
                 for m in range(M):
-                    cos_m = np.cos((2 * m + 1) * np.pi * l / (2 * M))
-                    cos_n = np.cos((2 * n + 1) * np.pi * k / (2 * N))
-                    suma += bloque[n, m] * cos_m * cos_n
+                    suma += bloque[n, m] * cos_matrix_m[l, m] * cos_matrix_n[k, n]
             
             X[k, l] = alfa[k] * beta[l] * suma
     
@@ -86,18 +96,28 @@ def idct_2d_manual(coeficientes):
     N, M = coeficientes.shape
     alfa, beta = calcular_coeficientes_dct(N, M)
     
+    # Precalcular matrices de cosenos para optimizar
+    cos_matrix_n = np.zeros((N, N))
+    cos_matrix_m = np.zeros((M, M))
+    
+    for k in range(N):
+        for n in range(N):
+            cos_matrix_n[k, n] = np.cos((2 * n + 1) * np.pi * k / (2 * N))
+    
+    for l in range(M):
+        for m in range(M):
+            cos_matrix_m[l, m] = np.cos((2 * m + 1) * np.pi * l / (2 * M))
+    
     # Matriz de salida
     x = np.zeros((N, M), dtype=np.float64)
     
-    # Aplicar la fórmula IDCT-2D
+    # Aplicar la fórmula IDCT-2D usando matrices precalculadas
     for n in range(N):
         for m in range(M):
             suma = 0.0
             for k in range(N):
                 for l in range(M):
-                    cos_m = np.cos((2 * m + 1) * np.pi * l / (2 * M))
-                    cos_n = np.cos((2 * n + 1) * np.pi * k / (2 * N))
-                    suma += alfa[k] * beta[l] * coeficientes[k, l] * cos_m * cos_n
+                    suma += alfa[k] * beta[l] * coeficientes[k, l] * cos_matrix_m[l, m] * cos_matrix_n[k, n]
             
             x[n, m] = suma
     
@@ -137,14 +157,27 @@ def comprimir_imagen_dct(imagen, porcentaje_compresion, tamanio_bloque=8):
     
     h_pad, w_pad = imagen.shape
     
+    # Calcular total de bloques para mostrar progreso
+    num_bloques_h = h_pad // tamanio_bloque
+    num_bloques_w = w_pad // tamanio_bloque
+    total_bloques = num_bloques_h * num_bloques_w
+    print(f"  Procesando {total_bloques} bloques de {tamanio_bloque}x{tamanio_bloque}...")
+    
     # Aplicar DCT por bloques
     dct_coefs = np.zeros_like(imagen, dtype=np.float64)
+    bloque_actual = 0
     
     for i in range(0, h_pad, tamanio_bloque):
         for j in range(0, w_pad, tamanio_bloque):
             bloque = imagen[i:i+tamanio_bloque, j:j+tamanio_bloque]
             dct_bloque = dct_2d_manual(bloque)
             dct_coefs[i:i+tamanio_bloque, j:j+tamanio_bloque] = dct_bloque
+            
+            # Mostrar progreso cada 100 bloques
+            bloque_actual += 1
+            if bloque_actual % 100 == 0 or bloque_actual == total_bloques:
+                porcentaje_progreso = (bloque_actual / total_bloques) * 100
+                print(f"    Progreso: {bloque_actual}/{total_bloques} bloques ({porcentaje_progreso:.1f}%)")
     
     # Comprimir eliminando coeficientes pequeños
     coefs_filtrados, num_eliminados = eliminar_coeficientes_pequenos(
@@ -185,14 +218,27 @@ def aplicar_dct_bloques(imagen, tamanio_bloque=8):
     
     h_pad, w_pad = imagen.shape
     
+    # Calcular total de bloques para mostrar progreso
+    num_bloques_h = h_pad // tamanio_bloque
+    num_bloques_w = w_pad // tamanio_bloque
+    total_bloques = num_bloques_h * num_bloques_w
+    print(f"  Aplicando DCT a {total_bloques} bloques de {tamanio_bloque}x{tamanio_bloque}...")
+    
     # Aplicar DCT por bloques
     dct_completa = np.zeros_like(imagen, dtype=np.float64)
+    bloque_actual = 0
     
     for i in range(0, h_pad, tamanio_bloque):
         for j in range(0, w_pad, tamanio_bloque):
             bloque = imagen[i:i+tamanio_bloque, j:j+tamanio_bloque]
             dct_bloque = dct_2d_manual(bloque)
             dct_completa[i:i+tamanio_bloque, j:j+tamanio_bloque] = dct_bloque
+            
+            # Mostrar progreso cada 100 bloques
+            bloque_actual += 1
+            if bloque_actual % 100 == 0 or bloque_actual == total_bloques:
+                porcentaje_progreso = (bloque_actual / total_bloques) * 100
+                print(f"    Progreso: {bloque_actual}/{total_bloques} bloques ({porcentaje_progreso:.1f}%)")
     
     return dct_completa, (h_pad, w_pad)
 
@@ -253,7 +299,15 @@ def descomprimir_imagen_dct(coeficientes_dct, forma_original, tamanio_bloque=8):
     ndarray : Imagen reconstruida
     """
     h_pad, w_pad = coeficientes_dct.shape
+    
+    # Calcular total de bloques
+    num_bloques_h = h_pad // tamanio_bloque
+    num_bloques_w = w_pad // tamanio_bloque
+    total_bloques = num_bloques_h * num_bloques_w
+    print(f"  Reconstruyendo imagen desde {total_bloques} bloques...")
+    
     imagen_rec = np.zeros_like(coeficientes_dct, dtype=np.float64)
+    bloque_actual = 0
     
     # Aplicar IDCT por bloques
     for i in range(0, h_pad, tamanio_bloque):
@@ -261,6 +315,12 @@ def descomprimir_imagen_dct(coeficientes_dct, forma_original, tamanio_bloque=8):
             bloque_dct = coeficientes_dct[i:i+tamanio_bloque, j:j+tamanio_bloque]
             bloque_rec = idct_2d_manual(bloque_dct)
             imagen_rec[i:i+tamanio_bloque, j:j+tamanio_bloque] = bloque_rec
+            
+            # Mostrar progreso cada 100 bloques
+            bloque_actual += 1
+            if bloque_actual % 100 == 0 or bloque_actual == total_bloques:
+                porcentaje_progreso = (bloque_actual / total_bloques) * 100
+                print(f"    Progreso: {bloque_actual}/{total_bloques} bloques ({porcentaje_progreso:.1f}%)")
     
     # Recortar al tamaño original
     imagen_rec = imagen_rec[:forma_original[0], :forma_original[1]]
