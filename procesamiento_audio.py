@@ -5,6 +5,43 @@ from scipy.signal import butter, filtfilt, resample
 from configuracion import FRECUENCIA_MUESTREO_OBJETIVO
 
 
+def aplicar_preenfasis(senal, coef=0.97):
+    """Aplica filtro de pre-énfasis para realzar frecuencias altas.
+    Esto ayuda a balancear el espectro de frecuencias en señales de voz."""
+    return np.append(senal[0], senal[1:] - coef * senal[:-1])
+
+
+def eliminar_silencio_voz(senal, fs, umbral_db=-40, margen_ms=100):
+    """Elimina silencios al inicio y final basándose en energía de la señal.
+    Útil para normalizar grabaciones con diferentes cantidades de silencio."""
+    # Calcular energía en dB
+    energia = senal ** 2
+    ventana_muestras = int(0.025 * fs)  # Ventana de 25ms
+    
+    # Energía por ventana
+    energia_ventana = np.convolve(energia, np.ones(ventana_muestras)/ventana_muestras, mode='same')
+    energia_ventana = np.maximum(energia_ventana, 1e-10)  # Evitar log(0)
+    energia_db = 10 * np.log10(energia_ventana)
+    
+    # Umbral
+    umbral = np.max(energia_db) + umbral_db
+    
+    # Encontrar regiones con voz
+    mascara_voz = energia_db > umbral
+    
+    if not np.any(mascara_voz):
+        return senal
+    
+    # Encontrar inicio y fin
+    indices_voz = np.where(mascara_voz)[0]
+    margen_muestras = int(margen_ms * fs / 1000)
+    
+    inicio = max(0, indices_voz[0] - margen_muestras)
+    fin = min(len(senal), indices_voz[-1] + margen_muestras)
+    
+    return senal[inicio:fin]
+
+
 def cargar_senal_desde_wav(ruta_archivo):
     """Carga una señal .wav y la devuelve en mono y como float normalizado."""
     fs, datos = wavfile.read(str(ruta_archivo))
@@ -35,10 +72,11 @@ def re_muestrear_senal(fs_original, senal):
     return senal_remuestreada
 
 
-def filtrar_ruido_pasabajos(senal, fs, frecuencia_corte=4000.0, orden=4):
-    """Filtra la señal con un filtro pasa‑bajos Butterworth para reducir ruido."""
+def filtrar_ruido_pasabajos(senal, fs, frecuencia_corte=3500.0, orden=5):
+    """Filtra la señal con un filtro pasa‑bajos Butterworth para reducir ruido.
+    Según la teoría, se debe acondicionar la señal eliminando ruido antes del análisis."""
     nyquist = fs / 2.0
-    wc = frecuencia_corte / nyquist
+    wc = min(frecuencia_corte / nyquist, 0.95)  # Asegurar que no exceda Nyquist
     b, a = butter(orden, wc, btype="low")
     senal_filtrada = filtfilt(b, a, senal)
     return senal_filtrada
@@ -56,8 +94,10 @@ def ajustar_longitud_potencia_de_dos(senal):
 
 
 def calcular_fft_magnitud(senal):
-    """Calcula la FFT y devuelve solo el espectro de magnitud de la parte positiva."""
+    """Calcula la FFT y devuelve solo el espectro de magnitud de la parte positiva.
+    Según la teoría, trabajamos con las frecuencias desde 0 hasta Nyquist (N/2)."""
     N = len(senal)
     espectro = np.fft.fft(senal)
-    espectro_magnitud = np.abs(espectro[: N // 2])  # solo frecuencias positivas
+    # Solo frecuencias positivas [0, N/2), excluyendo la frecuencia de Nyquist duplicada
+    espectro_magnitud = np.abs(espectro[: N // 2])
     return espectro_magnitud

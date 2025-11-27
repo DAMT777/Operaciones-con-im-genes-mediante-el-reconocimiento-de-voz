@@ -10,6 +10,8 @@ from configuracion import (
 from procesamiento_audio import (
     cargar_senal_desde_wav,
     re_muestrear_senal,
+    eliminar_silencio_voz,
+    aplicar_preenfasis,
     filtrar_ruido_pasabajos,
     ajustar_longitud_potencia_de_dos,
     calcular_fft_magnitud,
@@ -34,9 +36,12 @@ def _seleccionar_directorio_existente(rutas_candidatas):
 
 
 def procesar_senal_entrenamiento(ruta_archivo):
-    """Aplica todos los pasos del documento a una sola grabación de entrenamiento."""
+    """Aplica todos los pasos del documento a una sola grabación de entrenamiento.
+    Sigue la teoría: acondicionamiento -> FFT -> banco de filtros -> energías."""
     fs_original, senal = cargar_senal_desde_wav(ruta_archivo)
     senal = re_muestrear_senal(fs_original, senal)
+    senal = eliminar_silencio_voz(senal, FRECUENCIA_MUESTREO_OBJETIVO)  # Eliminar silencios
+    senal = aplicar_preenfasis(senal)  # Pre-énfasis para voz
     senal = filtrar_ruido_pasabajos(senal, FRECUENCIA_MUESTREO_OBJETIVO)
     senal = ajustar_longitud_potencia_de_dos(senal)
     espectro_magnitud = calcular_fft_magnitud(senal)

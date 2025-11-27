@@ -1,9 +1,10 @@
 import threading
 from pathlib import Path
+from tkinter import filedialog, messagebox
+import queue
 
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
-from tkinter import filedialog, messagebox
 
 from configuracion import ARCHIVO_UMBRALES, ETIQUETAS_COMANDOS
 from entrenamiento_comandos import entrenar_modelo_comandos
@@ -70,7 +71,7 @@ class AplicacionReconocimiento(tb.Window):
 
         btn_grabar_reconocer = tb.Button(
             marco_botones,
-            text="4. Grabar desde microfono y reconocer comando",
+            text="4. Grabar comando de voz y aplicar operacion",
             bootstyle="success",
             command=self.grabar_y_reconocer_en_hilo,
         )
@@ -114,6 +115,19 @@ class AplicacionReconocimiento(tb.Window):
 
     def _mostrar_error(self, titulo, mensaje):
         self.after(0, lambda: messagebox.showerror(titulo, mensaje))
+
+    def _mostrar_confirmacion(self, titulo, mensaje):
+        """Muestra un diálogo de confirmación y devuelve True si el usuario acepta.
+        Debe ser llamado desde un hilo secundario."""
+        resultado_queue = queue.Queue()
+        
+        def mostrar():
+            respuesta = messagebox.askyesno(titulo, mensaje)
+            resultado_queue.put(respuesta)
+        
+        self.after(0, mostrar)
+        # Esperar la respuesta del usuario
+        return resultado_queue.get()
 
     # ------------------------------------------------------------------
     def ejecutar_entrenamiento_en_hilo(self):
@@ -173,6 +187,17 @@ class AplicacionReconocimiento(tb.Window):
                 "Por favor cargue los umbrales entrenados antes de reconocer.",
             )
             return
+        
+        # Validar que se haya seleccionado una imagen
+        if self.ruta_imagen is None:
+            self.agregar_linea_estado(
+                "Debe seleccionar una imagen (paso 3) antes de grabar el comando."
+            )
+            self._mostrar_advertencia(
+                "Imagen no seleccionada",
+                "Por favor seleccione una imagen antes de grabar el comando de voz.",
+            )
+            return
 
         self.agregar_linea_estado("Grabando audio desde el microfono...")
         senal = grabar_audio_microfono()
@@ -192,17 +217,25 @@ class AplicacionReconocimiento(tb.Window):
             etiqueta = ETIQUETAS_COMANDOS.get(comando, comando)
             mensaje = f"Comando reconocido: {etiqueta} (puntaje = {puntaje:.5e})"
             self.agregar_linea_estado(mensaje)
-            self._mostrar_info("Resultado", mensaje)
-
-            if self.ruta_imagen is not None:
-                etiqueta = ETIQUETAS_COMANDOS.get(comando, comando)
+            
+            # Mostrar diálogo de confirmación antes de ejecutar la operación
+            confirmacion = self._mostrar_confirmacion(
+                "Confirmar operacion",
+                f"¿Desea aplicar la operacion '{etiqueta}' a la imagen seleccionada?\n\n"
+                f"Imagen: {self.ruta_imagen.name}\n"
+                f"Operacion: {etiqueta}\n"
+                f"Confianza: {puntaje:.2f}"
+            )
+            
+            if confirmacion:
                 self.agregar_linea_estado(
                     f"Aplicando operacion de imagen asociada a {etiqueta}..."
                 )
                 ejecutar_operacion_imagen(comando, self.ruta_imagen)
+                self.agregar_linea_estado(f"Operacion '{etiqueta}' completada exitosamente.")
             else:
                 self.agregar_linea_estado(
-                    "No se ha seleccionado imagen. Solo se muestra el comando reconocido."
+                    f"Operacion '{etiqueta}' cancelada por el usuario."
                 )
 
 
