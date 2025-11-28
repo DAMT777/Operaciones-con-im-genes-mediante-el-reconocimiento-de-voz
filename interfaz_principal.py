@@ -17,7 +17,6 @@ from reconocimiento_comandos import (
     ejecutar_operacion_imagen,
 )
 
-
 class AplicacionReconocimiento(tb.Window):
     def __init__(self):
         super().__init__(themename="flatly")
@@ -31,13 +30,10 @@ class AplicacionReconocimiento(tb.Window):
 
         self.crear_componentes_interfaz()
         
-        # Auto-cargar entrenamiento al iniciar
         self.after(500, self.auto_cargar_entrenamiento)
         
-        # Auto-iniciar micrófono
         self.after(1000, self.activar_microfono_continuo)
 
-    # ------------------------------------------------------------------
     def crear_componentes_interfaz(self):
         marco_principal = tb.Frame(self, padding=20)
         marco_principal.pack(fill=BOTH, expand=YES)
@@ -50,7 +46,6 @@ class AplicacionReconocimiento(tb.Window):
         )
         titulo.pack(fill=X, pady=(0, 15))
 
-        # Estado del micrófono
         self.label_microfono = tb.Label(
             marco_principal,
             text="🎤 Micrófono: Inicializando...",
@@ -59,7 +54,6 @@ class AplicacionReconocimiento(tb.Window):
         )
         self.label_microfono.pack(fill=X, pady=5)
 
-        # Botones principales
         marco_botones = tb.Frame(marco_principal)
         marco_botones.pack(fill=X, pady=10)
 
@@ -79,7 +73,6 @@ class AplicacionReconocimiento(tb.Window):
         )
         self.btn_toggle_mic.pack(fill=X, pady=5)
 
-        # Area de estado
         self.texto_estado = tb.Text(
             marco_principal,
             height=8,
@@ -87,7 +80,6 @@ class AplicacionReconocimiento(tb.Window):
         )
         self.texto_estado.pack(fill=BOTH, expand=YES, pady=(15, 0))
 
-        # Estilo oscuro manual
         self.texto_estado.configure(
             background="#1e1e1e",
             foreground="white",
@@ -98,9 +90,7 @@ class AplicacionReconocimiento(tb.Window):
             "Bienvenido. Configure la base de datos de audio y siga los pasos 1 - 4."
         )
 
-    # ------------------------------------------------------------------
     def agregar_linea_estado(self, mensaje):
-        # Siempre actualiza el Text en el hilo principal
         self.after(
             0,
             lambda: (
@@ -119,63 +109,25 @@ class AplicacionReconocimiento(tb.Window):
         self.after(0, lambda: messagebox.showerror(titulo, mensaje))
 
     def _mostrar_confirmacion(self, titulo, mensaje):
-        """Muestra un diálogo de confirmación y devuelve True si el usuario acepta.
-        Debe ser llamado desde un hilo secundario."""
-        resultado_queue = queue.Queue()
-        
-        def mostrar():
-            respuesta = messagebox.askyesno(titulo, mensaje)
-            resultado_queue.put(respuesta)
-        
-        self.after(0, mostrar)
-        # Esperar la respuesta del usuario
-        return resultado_queue.get()
-
-    # ------------------------------------------------------------------
-    def ejecutar_entrenamiento_en_hilo(self):
-        hilo = threading.Thread(target=self._tarea_entrenamiento, daemon=True)
-        hilo.start()
-
-    def _tarea_entrenamiento(self):
-        try:
-            self.agregar_linea_estado("Iniciando entrenamiento de comandos...")
-            entrenar_modelo_comandos()
-            self.agregar_linea_estado(
-                f"Entrenamiento finalizado. Archivo de umbrales guardado en: {ARCHIVO_UMBRALES}"
-            )
-            self._mostrar_info(
-                "Entrenamiento finalizado",
-                "El modelo ha sido entrenado correctamente.",
-            )
-        except Exception as e:
-            self.agregar_linea_estado(f"[ERROR] Durante el entrenamiento: {e}")
-            self._mostrar_error("Error en entrenamiento", str(e))
-
-    # ------------------------------------------------------------------
-    def cargar_umbrales_interfaz(self):
-        try:
-            self.umbrales = cargar_umbrales_desde_archivo()
-            self.agregar_linea_estado("Umbrales cargados correctamente.")
-            self._mostrar_info("Umbrales cargados", "Listo para reconocer comandos.")
-        except Exception as e:
-            self.agregar_linea_estado(f"[ERROR] Al cargar umbrales: {e}")
-            self._mostrar_error("Error al cargar umbrales", str(e))
-
-    # ------------------------------------------------------------------
+        result = messagebox.askyesno(titulo, mensaje)
+        return result
+    
     def seleccionar_imagen(self):
         ruta = filedialog.askopenfilename(
-            title="Seleccione la imagen base",
+            title="Seleccione imagen para operaciones",
             filetypes=[
                 ("Imagenes", "*.png;*.jpg;*.jpeg;*.bmp"),
                 ("Todos los archivos", "*.*"),
             ],
         )
+        
         if ruta:
             self.ruta_imagen = Path(ruta)
-            self.agregar_linea_estado(f"Imagen seleccionada: {self.ruta_imagen}")
+            self.agregar_linea_estado(f"✓ Imagen seleccionada: {self.ruta_imagen.name}")
+        else:
+            self.agregar_linea_estado(f"✗ No se seleccionó imagen")
     
     def _seleccionar_y_aplicar_comando(self, comando, etiqueta):
-        """Abre diálogo para seleccionar imagen y aplica el comando."""
         ruta = filedialog.askopenfilename(
             title=f"Seleccione imagen para aplicar '{etiqueta}'",
             filetypes=[
@@ -188,14 +140,12 @@ class AplicacionReconocimiento(tb.Window):
             self.ruta_imagen = Path(ruta)
             self.agregar_linea_estado(f"✓ Imagen seleccionada: {self.ruta_imagen.name}")
             
-            # Aplicar el comando directamente
             self.agregar_linea_estado(f"Ejecutando: {etiqueta}...")
             ejecutar_operacion_imagen(comando, self.ruta_imagen, self.pausar_microfono, self.reanudar_microfono)
             self.agregar_linea_estado(f"✓ {etiqueta} completado")
         else:
             self.agregar_linea_estado(f"✗ No se seleccionó imagen. Operación '{etiqueta}' cancelada")
 
-    # ------------------------------------------------------------------
     def grabar_y_reconocer_en_hilo(self):
         hilo = threading.Thread(target=self._tarea_grabar_y_reconocer, daemon=True)
         hilo.start()
@@ -211,7 +161,6 @@ class AplicacionReconocimiento(tb.Window):
             )
             return
         
-        # Validar que se haya seleccionado una imagen
         if self.ruta_imagen is None:
             self.agregar_linea_estado(
                 "Debe seleccionar una imagen (paso 3) antes de grabar el comando."
@@ -241,7 +190,6 @@ class AplicacionReconocimiento(tb.Window):
             mensaje = f"Comando reconocido: {etiqueta} (puntaje = {puntaje:.5e})"
             self.agregar_linea_estado(mensaje)
             
-            # Mostrar diálogo de confirmación antes de ejecutar la operación
             confirmacion = self._mostrar_confirmacion(
                 "Confirmar operacion",
                 f"¿Desea aplicar la operacion '{etiqueta}' a la imagen seleccionada?\n\n"
@@ -261,12 +209,7 @@ class AplicacionReconocimiento(tb.Window):
                     f"Operación '{etiqueta}' cancelada por el usuario."
                 )
     
-    # ------------------------------------------------------------------
-    # Métodos para micrófono continuo
-    # ------------------------------------------------------------------
-    
     def auto_cargar_entrenamiento(self):
-        """Carga automáticamente los umbrales al iniciar si existen."""
         try:
             from pathlib import Path
             if Path(ARCHIVO_UMBRALES).exists():
@@ -280,7 +223,6 @@ class AplicacionReconocimiento(tb.Window):
             self.agregar_linea_estado(f"⚠ Error al cargar umbrales: {e}")
     
     def activar_microfono_continuo(self):
-        """Activa el micrófono en modo continuo para escuchar comandos."""
         if self.umbrales is None:
             self.agregar_linea_estado("⏳ Esperando carga de umbrales...")
             self.after(2000, self.activar_microfono_continuo)
@@ -291,12 +233,10 @@ class AplicacionReconocimiento(tb.Window):
         self.btn_toggle_mic.config(text="⏸️ Pausar Micrófono")
         self.agregar_linea_estado("🎤 Micrófono activado. Diga un comando...")
         
-        # Iniciar hilo de escucha
         self.hilo_microfono = threading.Thread(target=self._bucle_escucha_microfono, daemon=True)
         self.hilo_microfono.start()
     
     def toggle_microfono(self):
-        """Pausa o reanuda el micrófono."""
         if self.microfono_activo:
             self.microfono_activo = False
             self.label_microfono.config(text="🎤 Micrófono: PAUSADO", bootstyle="warning")
@@ -306,7 +246,6 @@ class AplicacionReconocimiento(tb.Window):
             self.activar_microfono_continuo()
     
     def pausar_microfono(self):
-        """Pausa el micrófono cuando se abre una ventana de procesamiento."""
         if self.microfono_activo:
             self.microfono_activo = False
             self.label_microfono.config(text="🎤 Micrófono: PAUSADO (procesando imagen)", bootstyle="info")
@@ -314,31 +253,27 @@ class AplicacionReconocimiento(tb.Window):
             self.agregar_linea_estado("🎤 Micrófono pausado (ventana de procesamiento abierta)")
     
     def reanudar_microfono(self):
-        """Reanuda el micrófono cuando se cierra una ventana de procesamiento."""
         if not self.microfono_activo and self.umbrales is not None:
             self.activar_microfono_continuo()
             self.agregar_linea_estado("🎤 Micrófono reanudado (ventana de procesamiento cerrada)")
     
     def _bucle_escucha_microfono(self):
-        """Bucle que escucha continuamente el micrófono con VERIFICACIÓN DE ESTABILIDAD."""
         import time
         ultimo_reconocimiento = 0
-        TIEMPO_ESPERA = 1.5  # Segundos entre grabaciones
+        TIEMPO_ESPERA = 1.5
         
         print("[MICRÓFONO] ✅ Listo. Escuchando...")
         print("[CONSEJO] Habla CLARO y FUERTE cuando veas 'Grabando...'\n")
         
-        # Variables para verificación de estabilidad
         ultimo_comando = None
         contador_mismo_comando = 0
-        CONFIRMACIONES_NECESARIAS = 1  # Solo 1 detección necesaria (simplificado)
+        CONFIRMACIONES_NECESARIAS = 1
         
         while True:
             if not self.microfono_activo:
                 break
             
             try:
-                # Esperar tiempo mínimo entre reconocimientos
                 tiempo_actual = time.time()
                 if tiempo_actual - ultimo_reconocimiento < TIEMPO_ESPERA:
                     time.sleep(0.1)
@@ -346,33 +281,26 @@ class AplicacionReconocimiento(tb.Window):
                 
                 print(f"\n[GRABANDO...] 1.0s (buscando voz...)")
                 
-                # Grabar audio (ahora graba 1s y busca ventana con más energía)
                 senal = grabar_audio_microfono()
                 
                 if not self.microfono_activo:
                     break
                 
-                # Calcular RMS para logging
                 rms_val = np.sqrt(np.mean(senal ** 2))
                 db = 20.0 * np.log10(max(1e-12, rms_val))
                 
                 print(f"[CAPTURA] RMS={rms_val:.6f}, dB={db:.1f}")
                 
-                # Verificar que haya señal de audio (umbral MÍNIMO)
-                if rms_val < 0.0001:  # Umbral extremadamente bajo
+                if rms_val < 0.0001:
                     print(f"[DESCARTADO] Señal muy débil (silencio)\n")
                     continue
                 
-                # Si hay algo de señal, procesarla
                 print(f"[OK] Señal detectada (RMS={rms_val:.6f}), procesando...")
                 
-                # Procesar señal (usa método teoría)
                 vector_energias = procesar_senal_para_reconocimiento(senal)
                 
-                # Reconocer comando (usa distancia euclidiana + UMBRAL CALCULADO)
                 comando, distancia = reconocer_comando_por_energia(vector_energias, self.umbrales)
                 
-                # Si reconocer_comando_por_energia retorna None, fue rechazado por umbral
                 if comando is None:
                     print(f"[RECHAZADO] Ningún comando cumple umbral (mejor dist={distancia:.4f})")
                     continue
@@ -380,9 +308,6 @@ class AplicacionReconocimiento(tb.Window):
                 etiqueta = ETIQUETAS_COMANDOS.get(comando, comando)
                 print(f"[RECONOCIMIENTO] {etiqueta}: distancia={distancia:.4f}")
                 
-                # Ya no usamos umbral fijo (se usa el calculado en reconocer_comando_por_energia)
-                
-                # Verificar ESTABILIDAD: debe detectar el mismo comando varias veces
                 if comando == ultimo_comando:
                     contador_mismo_comando += 1
                     print(f"[CONFIRMACIÓN] {etiqueta} ({contador_mismo_comando}/{CONFIRMACIONES_NECESARIAS})")
@@ -392,16 +317,13 @@ class AplicacionReconocimiento(tb.Window):
                     print(f"[NUEVO] {etiqueta} detectado (1/{CONFIRMACIONES_NECESARIAS})")
                     continue
                 
-                # Si alcanzó las confirmaciones necesarias, EJECUTAR
                 if contador_mismo_comando >= CONFIRMACIONES_NECESARIAS:
                     ultimo_reconocimiento = tiempo_actual
                     self.agregar_linea_estado(f"✓ Comando detectado: {etiqueta} (dist: {distancia:.3f})")
                     
-                    # Validar que hay imagen seleccionada
                     if self.ruta_imagen is None:
                         self.agregar_linea_estado(f"⚠ No hay imagen. Solicitando selección...")
                         
-                        # Preguntar si quiere seleccionar una imagen ahora
                         quiere_seleccionar = self._mostrar_confirmacion(
                             "Imagen no seleccionada",
                             f"Comando '{etiqueta}' detectado.\n\n"
@@ -410,13 +332,11 @@ class AplicacionReconocimiento(tb.Window):
                         )
                         
                         if quiere_seleccionar:
-                            # Abrir diálogo de selección en el hilo principal
                             self.after(0, lambda: self._seleccionar_y_aplicar_comando(comando, etiqueta))
                         else:
                             self.agregar_linea_estado(f"✗ Operación '{etiqueta}' cancelada (sin imagen)")
                         continue
                     
-                    # Mostrar confirmación
                     confirmacion = self._mostrar_confirmacion(
                         "Confirmar operación",
                         f"¿Aplicar '{etiqueta}' a la imagen?\n\n"
@@ -431,7 +351,6 @@ class AplicacionReconocimiento(tb.Window):
                     else:
                         self.agregar_linea_estado(f"✗ {etiqueta} cancelado")
                     
-                    # Reset contador después de ejecutar
                     ultimo_comando = None
                     contador_mismo_comando = 0
                 
@@ -441,11 +360,9 @@ class AplicacionReconocimiento(tb.Window):
                 contador_mismo_comando = 0
                 time.sleep(0.5)
 
-
 def main():
     app = AplicacionReconocimiento()
     app.mainloop()
-
 
 if __name__ == "__main__":
     main()
