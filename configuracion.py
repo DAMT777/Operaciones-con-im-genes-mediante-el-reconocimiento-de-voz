@@ -20,15 +20,24 @@ ETIQUETAS_COMANDOS = {
 }
 
 
-# Parámetros de audio y análisis (según lab5)
-FRECUENCIA_MUESTREO_OBJETIVO = 16000  # Hz (igual que lab5 usa 44100, pero 16kHz es suficiente para voz)
-N_FFT = 4096  # Tamaño fijo de ventana FFT (como lab5)
-NUMERO_SUBBANDAS = 6  # Número de segmentos temporales (lab5 usa 3, usamos 6)
-VENTANA = "hamming"  # Tipo de ventana (igual que lab5)
+# Parámetros de audio y análisis (según teoría adjunta)
+FRECUENCIA_MUESTREO_OBJETIVO = 16000  # Hz - TODAS las señales se remuestrean a esta fs
+N_FFT = 4096  # Tamaño fijo de ventana FFT
+NUMERO_SUBBANDAS = 16  # Número de filtros/particiones (TEORÍA permite más de 4 para mejor discriminación)
+VENTANA = "hamming"  # Tipo de ventana temporal
+
+# Parámetros de preprocesado (teoría)
+FRECUENCIA_CORTE_PB = 3500  # Hz - Filtro pasa-bajas (eliminar ruido > 3.5 kHz)
+ORDEN_FILTRO = 4  # Orden del filtro Butterworth
+PREENFASIS_ALPHA = 0.97  # Coeficiente de pre-énfasis
+
+# Umbrales de silencio
+UMBRAL_ENERGIA_SILENCIO = 0.01  # Para detectar/eliminar silencio
+MARGEN_SILENCIO_MS = 100  # ms de margen al recortar silencio
 
 # Archivo donde se guardan los umbrales de energía (resultado del entrenamiento)
 ARCHIVO_UMBRALES = Path("umbrales_comandos.json")
 
 # Duración de la grabación desde el micrófono (segundos)
-# Aumentado para capturar palabras completas en español
-DURACION_GRABACION_SEGUNDOS = 1.5  # 1.5 segundos para capturar "segmentar", "comprimir", "cifrar"
+# 1.0s permite buscar ventana de 0.256s (~4096 muestras) con máxima energía
+DURACION_GRABACION_SEGUNDOS = 1.0

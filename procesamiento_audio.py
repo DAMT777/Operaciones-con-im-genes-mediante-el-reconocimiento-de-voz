@@ -2,10 +2,46 @@ import numpy as np
 from scipy.io import wavfile
 from scipy.signal import butter, filtfilt, resample
 
-from configuracion import FRECUENCIA_MUESTREO_OBJETIVO
+from configuracion import FRECUENCIA_MUESTREO_OBJETIVO, FRECUENCIA_CORTE_PB, ORDEN_FILTRO, PREENFASIS_ALPHA, UMBRAL_ENERGIA_SILENCIO, MARGEN_SILENCIO_MS, N_FFT
 
 
-def aplicar_preenfasis(senal, coef=0.97):
+def extraer_ventana_maxima_energia(senal, N):
+    """Extrae ventana de N muestras con máxima energía de la señal.
+    Igual que captura_microfono.py para consistencia entrenamiento-inferencia.
+    
+    IMPORTANTE: También normaliza la amplitud para compensar diferencias de volumen
+    entre grabaciones.
+    """
+    
+    if len(senal) <= N:
+        # Si la señal es más corta que N, rellenar con ceros
+        ventana = np.pad(senal, (0, N - len(senal)))
+    else:
+        # Deslizar ventana buscando máxima energía
+        mejor_energia = -1
+        mejor_inicio = 0
+        paso = N // 4  # Paso de ventana
+        
+        for i in range(0, len(senal) - N, paso):
+            ventana_temp = senal[i:i + N]
+            energia = np.sum(ventana_temp ** 2)
+            
+            if energia > mejor_energia:
+                mejor_energia = energia
+                mejor_inicio = i
+        
+        ventana = senal[mejor_inicio:mejor_inicio + N]
+    
+    # NORMALIZACIÓN DE AMPLITUD (crucial para compensar diferencias de volumen)
+    # Normalizar a RMS = 0.1 (nivel estándar)
+    rms = np.sqrt(np.mean(ventana ** 2))
+    if rms > 1e-6:  # Evitar división por cero
+        ventana = ventana * (0.1 / rms)
+    
+    return ventana
+
+
+def aplicar_preenfasis(senal, coef=PREENFASIS_ALPHA):
     """Aplica filtro de pre-énfasis para realzar frecuencias altas.
     Esto ayuda a balancear el espectro de frecuencias en señales de voz."""
     return np.append(senal[0], senal[1:] - coef * senal[:-1])
@@ -72,7 +108,7 @@ def re_muestrear_senal(fs_original, senal):
     return senal_remuestreada
 
 
-def filtrar_ruido_pasabajos(senal, fs, frecuencia_corte=3500.0, orden=5):
+def filtrar_ruido_pasabajos(senal, fs, frecuencia_corte=FRECUENCIA_CORTE_PB, orden=ORDEN_FILTRO):
     """Filtra la señal con un filtro pasa‑bajos Butterworth para reducir ruido.
     Según la teoría, se debe acondicionar la señal eliminando ruido antes del análisis."""
     nyquist = fs / 2.0

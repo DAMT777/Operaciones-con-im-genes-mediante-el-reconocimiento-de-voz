@@ -190,7 +190,7 @@ class AplicacionReconocimiento(tb.Window):
             
             # Aplicar el comando directamente
             self.agregar_linea_estado(f"Ejecutando: {etiqueta}...")
-            ejecutar_operacion_imagen(comando, self.ruta_imagen)
+            ejecutar_operacion_imagen(comando, self.ruta_imagen, self.pausar_microfono, self.reanudar_microfono)
             self.agregar_linea_estado(f"✓ {etiqueta} completado")
         else:
             self.agregar_linea_estado(f"✗ No se seleccionó imagen. Operación '{etiqueta}' cancelada")
@@ -254,7 +254,7 @@ class AplicacionReconocimiento(tb.Window):
                 self.agregar_linea_estado(
                     f"Aplicando operacion de imagen asociada a {etiqueta}..."
                 )
-                ejecutar_operacion_imagen(comando, self.ruta_imagen)
+                ejecutar_operacion_imagen(comando, self.ruta_imagen, self.pausar_microfono, self.reanudar_microfono)
                 self.agregar_linea_estado(f"Operacion '{etiqueta}' completada exitosamente.")
             else:
                 self.agregar_linea_estado(
@@ -305,14 +305,33 @@ class AplicacionReconocimiento(tb.Window):
         else:
             self.activar_microfono_continuo()
     
+    def pausar_microfono(self):
+        """Pausa el micrófono cuando se abre una ventana de procesamiento."""
+        if self.microfono_activo:
+            self.microfono_activo = False
+            self.label_microfono.config(text="🎤 Micrófono: PAUSADO (procesando imagen)", bootstyle="info")
+            self.btn_toggle_mic.config(text="▶️ Reanudar Micrófono")
+            self.agregar_linea_estado("🎤 Micrófono pausado (ventana de procesamiento abierta)")
+    
+    def reanudar_microfono(self):
+        """Reanuda el micrófono cuando se cierra una ventana de procesamiento."""
+        if not self.microfono_activo and self.umbrales is not None:
+            self.activar_microfono_continuo()
+            self.agregar_linea_estado("🎤 Micrófono reanudado (ventana de procesamiento cerrada)")
+    
     def _bucle_escucha_microfono(self):
-        """Bucle que escucha continuamente el micrófono (método SIMPLIFICADO)."""
+        """Bucle que escucha continuamente el micrófono con VERIFICACIÓN DE ESTABILIDAD."""
         import time
         ultimo_reconocimiento = 0
-        TIEMPO_ESPERA = 2.0  # Segundos entre grabaciones
+        TIEMPO_ESPERA = 1.5  # Segundos entre grabaciones
         
         print("[MICRÓFONO] ✅ Listo. Escuchando...")
-        print("[CONSEJO] Habla cuando veas 'Grabando...' en consola\n")
+        print("[CONSEJO] Habla CLARO y FUERTE cuando veas 'Grabando...'\n")
+        
+        # Variables para verificación de estabilidad
+        ultimo_comando = None
+        contador_mismo_comando = 0
+        CONFIRMACIONES_NECESARIAS = 1  # Solo 1 detección necesaria (simplificado)
         
         while True:
             if not self.microfono_activo:
@@ -339,66 +358,87 @@ class AplicacionReconocimiento(tb.Window):
                 
                 print(f"[CAPTURA] RMS={rms_val:.6f}, dB={db:.1f}")
                 
-                # Verificar que haya señal de audio (no solo silencio)
-                if rms_val < 0.001:  # Umbral mínimo de señal
+                # Verificar que haya señal de audio (umbral MÍNIMO)
+                if rms_val < 0.0001:  # Umbral extremadamente bajo
                     print(f"[DESCARTADO] Señal muy débil (silencio)\n")
                     continue
                 
-                # Procesar señal (usa método lab5)
+                # Si hay algo de señal, procesarla
+                print(f"[OK] Señal detectada (RMS={rms_val:.6f}), procesando...")
+                
+                # Procesar señal (usa método teoría)
                 vector_energias = procesar_senal_para_reconocimiento(senal)
                 
-                # Reconocer comando (usa distancia euclidiana)
+                # Reconocer comando (usa distancia euclidiana + UMBRAL CALCULADO)
                 comando, distancia = reconocer_comando_por_energia(vector_energias, self.umbrales)
                 
-                # UMBRAL DE DISTANCIA (más estricto para evitar falsos positivos)
-                DISTANCIA_MAXIMA_ACEPTABLE = 0.05  # Muy estricto: solo acepta muy similares
+                # Si reconocer_comando_por_energia retorna None, fue rechazado por umbral
+                if comando is None:
+                    print(f"[RECHAZADO] Ningún comando cumple umbral (mejor dist={distancia:.4f})")
+                    continue
                 
                 etiqueta = ETIQUETAS_COMANDOS.get(comando, comando)
-                print(f"[RECONOCIMIENTO] {etiqueta}: distancia={distancia:.4f}, umbral={DISTANCIA_MAXIMA_ACEPTABLE}")
+                print(f"[RECONOCIMIENTO] {etiqueta}: distancia={distancia:.4f}")
                 
-                if distancia < DISTANCIA_MAXIMA_ACEPTABLE:
-                        ultimo_reconocimiento = tiempo_actual
-                        self.agregar_linea_estado(f"✓ Comando detectado: {etiqueta} (dist: {distancia:.3f})")
+                # Ya no usamos umbral fijo (se usa el calculado en reconocer_comando_por_energia)
+                
+                # Verificar ESTABILIDAD: debe detectar el mismo comando varias veces
+                if comando == ultimo_comando:
+                    contador_mismo_comando += 1
+                    print(f"[CONFIRMACIÓN] {etiqueta} ({contador_mismo_comando}/{CONFIRMACIONES_NECESARIAS})")
+                else:
+                    ultimo_comando = comando
+                    contador_mismo_comando = 1
+                    print(f"[NUEVO] {etiqueta} detectado (1/{CONFIRMACIONES_NECESARIAS})")
+                    continue
+                
+                # Si alcanzó las confirmaciones necesarias, EJECUTAR
+                if contador_mismo_comando >= CONFIRMACIONES_NECESARIAS:
+                    ultimo_reconocimiento = tiempo_actual
+                    self.agregar_linea_estado(f"✓ Comando detectado: {etiqueta} (dist: {distancia:.3f})")
+                    
+                    # Validar que hay imagen seleccionada
+                    if self.ruta_imagen is None:
+                        self.agregar_linea_estado(f"⚠ No hay imagen. Solicitando selección...")
                         
-                        # Validar que hay imagen seleccionada
-                        if self.ruta_imagen is None:
-                            self.agregar_linea_estado(f"⚠ No hay imagen. Solicitando selección...")
-                            
-                            # Preguntar si quiere seleccionar una imagen ahora
-                            quiere_seleccionar = self._mostrar_confirmacion(
-                                "Imagen no seleccionada",
-                                f"Comando '{etiqueta}' detectado.\n\n"
-                                f"No hay imagen seleccionada.\n"
-                                f"¿Desea seleccionar una imagen ahora?"
-                            )
-                            
-                            if quiere_seleccionar:
-                                # Abrir diálogo de selección en el hilo principal
-                                self.after(0, lambda: self._seleccionar_y_aplicar_comando(comando, etiqueta))
-                            else:
-                                self.agregar_linea_estado(f"✗ Operación '{etiqueta}' cancelada (sin imagen)")
-                            continue
-                        
-                        # Mostrar confirmación
-                        confirmacion = self._mostrar_confirmacion(
-                            "Confirmar operación",
-                            f"¿Aplicar '{etiqueta}' a la imagen?\n\n"
-                            f"Imagen: {self.ruta_imagen.name}\n"
-                            f"Distancia: {distancia:.3f}"
+                        # Preguntar si quiere seleccionar una imagen ahora
+                        quiere_seleccionar = self._mostrar_confirmacion(
+                            "Imagen no seleccionada",
+                            f"Comando '{etiqueta}' detectado.\n\n"
+                            f"No hay imagen seleccionada.\n"
+                            f"¿Desea seleccionar una imagen ahora?"
                         )
                         
-                        if confirmacion:
-                            self.agregar_linea_estado(f"Ejecutando: {etiqueta}...")
-                            ejecutar_operacion_imagen(comando, self.ruta_imagen)
-                            self.agregar_linea_estado(f"✓ {etiqueta} completado")
+                        if quiere_seleccionar:
+                            # Abrir diálogo de selección en el hilo principal
+                            self.after(0, lambda: self._seleccionar_y_aplicar_comando(comando, etiqueta))
                         else:
-                            self.agregar_linea_estado(f"✗ {etiqueta} cancelado")
-                else:
-                    print(f"[RECHAZADO] {etiqueta}: distancia {distancia:.3f} > umbral {DISTANCIA_MAXIMA_ACEPTABLE}")
-                    self.agregar_linea_estado(f"⚠ '{etiqueta}' detectado pero distancia alta ({distancia:.3f})")
+                            self.agregar_linea_estado(f"✗ Operación '{etiqueta}' cancelada (sin imagen)")
+                        continue
+                    
+                    # Mostrar confirmación
+                    confirmacion = self._mostrar_confirmacion(
+                        "Confirmar operación",
+                        f"¿Aplicar '{etiqueta}' a la imagen?\n\n"
+                        f"Imagen: {self.ruta_imagen.name}\n"
+                        f"Distancia: {distancia:.3f}"
+                    )
+                    
+                    if confirmacion:
+                        self.agregar_linea_estado(f"Ejecutando: {etiqueta}...")
+                        ejecutar_operacion_imagen(comando, self.ruta_imagen, self.pausar_microfono, self.reanudar_microfono)
+                        self.agregar_linea_estado(f"✓ {etiqueta} completado")
+                    else:
+                        self.agregar_linea_estado(f"✗ {etiqueta} cancelado")
+                    
+                    # Reset contador después de ejecutar
+                    ultimo_comando = None
+                    contador_mismo_comando = 0
                 
             except Exception as e:
                 self.agregar_linea_estado(f"Error en reconocimiento: {e}")
+                ultimo_comando = None
+                contador_mismo_comando = 0
                 time.sleep(0.5)
 
 

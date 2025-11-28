@@ -12,7 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 
 
 class VentanaSegmentacionKMeans:
-    def __init__(self, parent, ruta_imagen):
+    def __init__(self, parent, ruta_imagen, pausar_callback=None, reanudar_callback=None):
         """
         Inicializa la ventana de segmentación K-means.
         
@@ -22,11 +22,25 @@ class VentanaSegmentacionKMeans:
             Ventana padre
         ruta_imagen : Path o str
             Ruta de la imagen a segmentar
+        pausar_callback : callable, opcional
+            Función a llamar al abrir la ventana (pausar micrófono)
+        reanudar_callback : callable, opcional
+            Función a llamar al cerrar la ventana (reanudar micrófono)
         """
+        self.parent = parent
+        self.reanudar_callback = reanudar_callback
+        
         self.ventana = tk.Toplevel(parent)
         self.ventana.title("Segmentación de Imagen con K-means Clustering")
         self.ventana.geometry("1600x900")
         self.ventana.configure(bg='#2c3e50')
+        
+        # Pausar micrófono al abrir
+        if pausar_callback:
+            pausar_callback()
+        
+        # Configurar evento de cierre para reanudar micrófono
+        self.ventana.protocol("WM_DELETE_WINDOW", self.al_cerrar)
         
         # Cargar imagen con soporte Unicode
         self.imagen_original = self.cargar_imagen_opencv_unicode(str(ruta_imagen))
@@ -44,6 +58,12 @@ class VentanaSegmentacionKMeans:
         self.toolbar_actual = None
         
         self.crear_interfaz()
+    
+    def al_cerrar(self):
+        """Maneja el cierre de la ventana, reanudando el micrófono."""
+        if self.reanudar_callback:
+            self.reanudar_callback()
+        self.ventana.destroy()
     
     def cargar_imagen_opencv_unicode(self, ruta):
         """Carga imagen con OpenCV soportando rutas Unicode."""

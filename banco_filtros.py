@@ -3,54 +3,47 @@ from scipy.signal import get_window
 
 
 def calcular_vector_energias_temporal(senal, fs, N, K, window="hamming"):
-    """Calcula energías por SUBBANDAS DE FRECUENCIA (método EXACTO del lab5 según imagen).
+    """Calcula energías según TEORÍA ADJUNTA EXACTA.
     
-    MÉTODO CORRECTO (según imagen compartida):
-    1. Preprocesamiento: DC removal, RMS normalization, pre-énfasis
-    2. Ajustar señal a tamaño N
-    3. Aplicar ventana a TODA la señal
-    4. Calcular FFT de TODA la señal
-    5. Dividir el ESPECTRO en K partes iguales (bandas de frecuencia)
-    6. Calcular energía de cada banda: E = (1/N) * Σ|X(k)|²
-    7. Normalización
+    PASOS SEGÚN TEORÍA:
+    1. Remover DC (componente continua)
+    2. Pre-énfasis para balancear espectro
+    3. Ajustar/rellenar a N muestras (potencia de 2)
+    4. Aplicar ventana temporal (Hamming)
+    5. Calcular FFT de N puntos: y = fft(x), z = |y|
+    6. Determinar ancho de banda común BW
+    7. Dividir BW en K partes iguales (4 sub-bandas)
+    8. Calcular energía por sub-banda: E = (1/N) * Σ|X(k)|²
     
     Args:
-        senal: Señal de audio RAW (sin preprocesar)
-        fs: Frecuencia de muestreo
-        N: Tamaño fijo de ventana
-        K: Número de bandas de frecuencia
-        window: Tipo de ventana
+        senal: Señal de audio de entrada
+        fs: Frecuencia de muestreo (16000 Hz)
+        N: Tamaño FFT (4096 - potencia de 2)
+        K: Número de sub-bandas (4 según teoría)
+        window: Tipo de ventana ("hamming" recomendado)
     
     Returns:
-        Vector de K energías normalizadas
+        Vector de K energías [E1, E2, E3, E4]
     """
-    # ========== PASO 1: PREPROCESAMIENTO ==========
-    
-    # Eliminar componente DC
+    # PASO 1: Eliminar componente DC
     x = senal - np.mean(senal)
     
-    # Normalizar RMS
-    rms_val = np.sqrt(np.mean(x ** 2))
-    if rms_val > 1e-8:
-        x = x / rms_val
-    
-    # Pre-énfasis
+    # PASO 2: Pre-énfasis (realzar altas frecuencias)
+    # Fórmula: y[n] = x[n] - α*x[n-1], donde α = 0.97
     x = np.append(x[0], x[1:] - 0.97 * x[:-1])
     
-    # ========== PASO 2: AJUSTAR A TAMAÑO N ==========
-    
+    # PASO 3: Ajustar a N muestras exactas
     if len(x) < N:
-        # Rellenar con ceros
+        # Rellenar con ceros si es más corta
         xN = np.pad(x, (0, N - len(x)), mode='constant')
     elif len(x) > N:
-        # Tomar centro (donde suele estar la voz)
+        # Tomar ventana centrada si es más larga
         start = (len(x) - N) // 2
         xN = x[start:start + N]
     else:
         xN = x
     
-    # ========== PASO 3: APLICAR VENTANA A TODA LA SEÑAL ==========
-    
+    # PASO 4: Aplicar ventana temporal
     if window.lower() == "none" or window == "rect":
         w = np.ones(N)
     else:
@@ -58,46 +51,41 @@ def calcular_vector_energias_temporal(senal, fs, N, K, window="hamming"):
     
     xN_windowed = xN * w
     
-    # ========== PASO 4: FFT DE TODA LA SEÑAL ==========
+    # PASO 5: Calcular FFT completa
+    # y = fft(x)
+    X = np.fft.fft(xN_windowed, n=N)
     
-    X = np.fft.rfft(xN_windowed, n=N)  # Solo frecuencias positivas
-    X_mag = np.abs(X)
+    # PASO 6: Determinar BW (ancho de banda común)
+    # Según teoría: usar solo frecuencias positivas (0 a fs/2)
+    # Esto corresponde a la mitad de los puntos FFT
+    N_half = N // 2
+    X_positivas = X[:N_half]
     
-    # ========== PASO 5: DIVIDIR ESPECTRO EN K BANDAS ==========
+    # PASO 7: Dividir BW en K partes iguales
+    # Ejemplo con K=4: X1(k)=[X(0) X(1)], X2(k)=[X(2) X(3)], ...
+    puntos_por_subbanda = N_half // K
     
-    n_bins = len(X_mag)
-    band_size = n_bins // K
-    Es = np.zeros(K, dtype=float)
-    
-    # ========== PASO 6: CALCULAR ENERGÍA POR BANDA ==========
+    # PASO 8: Calcular energía por cada sub-banda
+    # E = (1/N) * Σ|X(k)|²
+    energias = np.zeros(K, dtype=np.float32)
     
     for i in range(K):
-        # Definir rango de la banda i
-        start_bin = i * band_size
+        inicio = i * puntos_por_subbanda
+        
         if i == K - 1:
-            # Última banda toma todos los bins restantes
-            end_bin = n_bins
+            # Última sub-banda toma puntos restantes
+            fin = N_half
         else:
-            end_bin = (i + 1) * band_size
+            fin = (i + 1) * puntos_por_subbanda
         
-        # Extraer magnitudes de la banda
-        band_mag = X_mag[start_bin:end_bin]
+        # Extraer sub-banda Xi(k)
+        Xi = X_positivas[inicio:fin]
         
-        # Energía = (1/N) * Σ|X(k)|²
-        energy = np.sum(band_mag ** 2) / N
-        Es[i] = float(energy)
+        # Calcular energía: E = (1/N) * Σ|X(k)|²
+        Ei = (1.0 / N) * np.sum(np.abs(Xi) ** 2)
+        energias[i] = Ei
     
-    # ========== PASO 7: NORMALIZACIÓN ==========
-    
-    # Logaritmo para robustez
-    Es = np.log10(Es + 1e-10)
-    
-    # Normalizar distribución relativa (suma = 1)
-    E_sum = np.sum(Es)
-    if E_sum != 0:
-        Es = Es / E_sum
-    
-    return Es.astype(np.float32)
+    return energias
 
 
 def calcular_vector_energias(espectro_magnitud, numero_subbandas):
@@ -114,11 +102,5 @@ def calcular_estadisticos_energias(lista_vectores_energias):
 
 
 def normalizar_vector_energia(vector):
-    """Normaliza el vector de energias para eliminar dependencia del volumen.
-    Según la teoría, se divide cada componente por la suma total."""
-    energia_total = np.sum(vector)
-    # Umbral mínimo para evitar división por cero
-    if energia_total <= 1e-12:
-        # Si no hay energía, retornar vector uniforme normalizado
-        return np.ones_like(vector, dtype=np.float32) / len(vector)
-    return (vector / energia_total).astype(np.float32)
+    """DEPRECATED: Ya no normalizamos suma=1 (teoría usa energía absoluta)."""
+    return vector.astype(np.float32)

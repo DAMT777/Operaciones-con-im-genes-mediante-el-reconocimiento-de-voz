@@ -16,8 +16,7 @@ from procesamiento_audio import (
     eliminar_silencio_voz,
     aplicar_preenfasis,
     filtrar_ruido_pasabajos,
-    ajustar_longitud_potencia_de_dos,
-    calcular_fft_magnitud,
+    extraer_ventana_maxima_energia,
 )
 from banco_filtros import (
     calcular_estadisticos_energias,
@@ -37,24 +36,30 @@ def _seleccionar_directorio_existente(rutas_candidatas):
 
 
 def procesar_senal_entrenamiento(ruta_archivo):
-    """Procesa una grabación de entrenamiento (método EXACTO del lab5)."""
-    import soundfile as sf
+    """Procesa una grabación de entrenamiento CON PREPROCESADO COMPLETO (teoría).
+    MISMO procedimiento que captura de micrófono para CONSISTENCIA."""
     from banco_filtros import calcular_vector_energias_temporal
     
-    # Cargar archivo WAV (como lab5)
-    x, fs_file = sf.read(str(ruta_archivo), dtype='float32')
+    # 1. CARGAR WAV (con su fs original)
+    fs_original, x = cargar_senal_desde_wav(ruta_archivo)
     
-    # Si es estereo, convertir a mono
-    if x.ndim > 1:
-        x = x.mean(axis=1)
+    # 2. REMUESTREAR A 16 kHz (CRÍTICO: alinear con micrófono)
+    x = re_muestrear_senal(fs_original, x)
+    fs = FRECUENCIA_MUESTREO_OBJETIVO
     
-    # Ajustar a N muestras (como lab5: truncar o rellenar)
-    x = x[:N_FFT] if len(x) >= N_FFT else np.pad(x, (0, N_FFT - len(x)))
+    # 3. FILTRO PASA-BAJAS (eliminar ruido > 3.5 kHz)
+    x = filtrar_ruido_pasabajos(x, fs)
     
-    # Calcular energías (incluye TODO el preprocesamiento)
+    # 4. ELIMINAR SILENCIO (recortar inicio/fin sin voz)
+    x = eliminar_silencio_voz(x, fs)
+    
+    # 5. EXTRAER VENTANA DE MÁXIMA ENERGÍA (igual que micrófono)
+    x = extraer_ventana_maxima_energia(x, N_FFT)
+    
+    # 6. Calcular energías (ya incluye DC removal, pre-énfasis, ventana)
     vector_energias = calcular_vector_energias_temporal(
         x,
-        fs=fs_file,  # Usar fs del archivo (lab5 no remuestrea en entrenamiento)
+        fs=fs,  # Ahora TODOS a 16 kHz
         N=N_FFT,
         K=NUMERO_SUBBANDAS,
         window=VENTANA
@@ -64,9 +69,18 @@ def procesar_senal_entrenamiento(ruta_archivo):
 
 
 def entrenar_modelo_comandos():
-    """Fase de entrenamiento: guarda PATRONES DE REFERENCIA (método EXACTO lab5)."""
+    """Entrenamiento según TEORÍA EXACTA del documento.
     
-    # Estructura como lab5
+    PROCESO:
+    1. Para cada comando, procesar TODAS las grabaciones M
+    2. Calcular vector de energías [E1, E2, E3, E4] para cada grabación
+    3. PROMEDIAR cada componente: EC1 = ΣEC1/M, EC2 = ΣEC2/M, ...
+    4. Guardar vector promedio [EC1, EC2, EC3, EC4] como UMBRAL del comando
+    
+    IMPORTANTE: Según teoría, el umbral es simplemente el PROMEDIO de energías,
+    NO un percentil ni distancia calculada.
+    """
+    
     resultados = {
         "fs": FRECUENCIA_MUESTREO_OBJETIVO,
         "N": N_FFT,
@@ -77,40 +91,66 @@ def entrenar_modelo_comandos():
 
     for nombre_comando, rutas_candidatas in DIRECTORIOS_COMANDOS.items():
         ruta_directorio = _seleccionar_directorio_existente(rutas_candidatas)
-        print(f"Entrenando comando: {nombre_comando} en {ruta_directorio}")
+        print(f"\n{'='*60}")
+        print(f"Entrenando comando: {nombre_comando}")
+        print(f"Directorio: {ruta_directorio}")
+        print(f"{'='*60}")
+        
         rutas_wav = obtener_rutas_wav_directorio(ruta_directorio)
 
         if not rutas_wav:
-            print(f"  [ADVERTENCIA] No se encontraron archivos .wav en {ruta_directorio}")
+            print(f"  ⚠ ADVERTENCIA: No se encontraron archivos .wav")
             continue
 
-        # GUARDAR TODOS LOS PATRONES (como lab5)
-        patrones = []
+        # Lista para almacenar vectores de energía de todas las grabaciones
+        vectores_energia = []
 
-        for ruta_wav in rutas_wav:
-            print(f"    Procesando: {ruta_wav.name}")
-            vector_energias = procesar_senal_entrenamiento(ruta_wav)
-            patrones.append(vector_energias.tolist())
+        for idx, ruta_wav in enumerate(rutas_wav, 1):
+            try:
+                vector_energias = procesar_senal_entrenamiento(ruta_wav)
+                vectores_energia.append(vector_energias)
+                
+                if idx % 20 == 0:
+                    print(f"  Procesados: {idx}/{len(rutas_wav)} archivos...")
+            except Exception as e:
+                print(f"  ✗ Error en {ruta_wav.name}: {e}")
+                continue
 
-        # Calcular estadísticas para información
-        matriz = np.array(patrones)
-        medias = np.mean(matriz, axis=0)
-        desviaciones = np.std(matriz, axis=0, ddof=0)
-
-        # Guardar TODO (patrones + estadísticas)
+        if len(vectores_energia) == 0:
+            print(f"  ✗ No se pudo procesar ningún archivo")
+            continue
+        
+        # Convertir a matriz para cálculos
+        matriz_energias = np.array(vectores_energia)
+        M = len(vectores_energia)  # Número de grabaciones
+        
+        # PASO CLAVE SEGÚN TEORÍA: Promediar cada componente
+        # EC1 = ΣEC1/M, EC2 = ΣEC2/M, EC3 = ΣEC3/M, EC4 = ΣEC4/M
+        vector_promedio = np.mean(matriz_energias, axis=0)
+        
+        # Calcular desviación estándar (solo para información)
+        desviacion = np.std(matriz_energias, axis=0, ddof=0)
+        
+        # Guardar resultado según teoría
         resultados["commands"][nombre_comando] = {
-            "mean": medias.tolist(),
-            "std": desviaciones.tolist(),
-            "count": len(patrones),
-            "_patterns": patrones  # TODOS los patrones de referencia
+            "mean": vector_promedio.tolist(),  # Vector de umbrales [EC1, EC2, EC3, EC4]
+            "std": desviacion.tolist(),
+            "count": M
         }
         
-        print(f"    ✓ {len(patrones)} patrones guardados")
+        print(f"\n  ✓ Entrenamiento completado:")
+        print(f"    - Grabaciones procesadas: {M}")
+        print(f"    - Vector de umbrales: {vector_promedio}")
+        print(f"    - Desviación estándar: {desviacion}")
 
+    # Guardar archivo JSON
     with open(ARCHIVO_UMBRALES, "w", encoding="utf-8") as f:
         json.dump(resultados, f, indent=4, ensure_ascii=False)
 
-    print(f"\n✓ Entrenamiento finalizado. Patrones guardados en: {ARCHIVO_UMBRALES}")
+    print(f"\n{'='*60}")
+    print(f"✓ Entrenamiento finalizado exitosamente")
+    print(f"✓ Umbrales guardados en: {ARCHIVO_UMBRALES}")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":

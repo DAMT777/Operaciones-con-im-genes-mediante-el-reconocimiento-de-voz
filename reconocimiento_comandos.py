@@ -54,61 +54,94 @@ def procesar_senal_para_reconocimiento(senal):
 
 
 def reconocer_comando_por_energia(vector_energias, umbrales):
-    """Devuelve el comando reconocido usando DISTANCIA MÍNIMA A PATRONES (método lab5).
+    """Reconoce comando usando MÉTODO EXACTO DE LA TEORÍA MEJORADO.
     
-    MÉTODO CORRECTO LAB5:
-    - Compara con TODOS los patrones de referencia de cada comando
-    - Para cada comando, calcula distancia mínima entre todos sus patrones
-    - El comando con menor distancia mínima gana
+    TEORÍA - RECONOCIMIENTO EN TIEMPO REAL (MEJORADO):
+    1. Señal nueva → mismo proceso → vector [E1, E2, ..., EK]
+    2. NORMALIZAR vector a longitud unitaria (enfoque en FORMA espectral)
+    3. Comparar con vectores normalizados de cada comando entrenado
+    4. Calcular distancia Euclidiana
+    5. El comando reconocido es: argmin(distancias)
+    
+    La normalización permite que el sistema se enfoque en la FORMA del espectro
+    (qué sub-bandas tienen más/menos energía relativa) en lugar de la magnitud absoluta,
+    lo cual es más robusto ante variaciones de volumen y características similares.
+    
+    Args:
+        vector_energias: Vector [E1, E2, ..., EK] de la señal de entrada
+        umbrales: Diccionario con umbrales de cada comando
+    
+    Returns:
+        (comando_reconocido, distancia_minima)
     """
-    E = vector_energias
+    E = np.array(vector_energias, dtype=float)
     
-    print(f"\n  [ANÁLISIS] Vector entrada: {E}")
-    print(f"  [ANÁLISIS] Suma: {np.sum(E):.6f}")
-    print(f"  [ANÁLISIS] Min: {np.min(E):.6f}, Max: {np.max(E):.6f}")
+    # NORMALIZACIÓN A LONGITUD UNITARIA (vector unitario)
+    # Esto hace que el sistema se enfoque en la FORMA del espectro
+    norma_E = np.linalg.norm(E)
+    if norma_E > 1e-10:
+        E_norm = E / norma_E
+    else:
+        E_norm = E
     
-    distancias_minimas = {}
+    print(f"\n{'='*60}")
+    print(f"RECONOCIMIENTO DE COMANDO")
+    print(f"{'='*60}")
+    print(f"Vector entrada: {E}")
+    print(f"Energía total: {np.sum(E):.6f}")
+    print(f"Vector normalizado: {E_norm}")
+    print(f"{'-'*60}")
     
-    # Obtener comandos del formato correcto
+    distancias = {}
     commands = umbrales.get("commands", umbrales)
     
+    # Calcular distancia a cada comando entrenado
     for nombre_comando, datos_comando in commands.items():
-        # Obtener patrones de referencia
-        patrones = datos_comando.get("_patterns", [])
+        # Obtener vector de umbrales del comando (vector promedio del entrenamiento)
+        umbral_vector = np.array(datos_comando.get("mean", []), dtype=float)
         
-        if not patrones:
-            # Fallback: usar media si no hay patrones
-            mean = np.array(datos_comando.get("mean", datos_comando.get("medias", [])), dtype=float)
-            d_min = np.linalg.norm(E - mean)
-            print(f"  {nombre_comando}: usando MEDIA (dist={d_min:.4f})")
+        if len(umbral_vector) == 0:
+            print(f"⚠ {nombre_comando}: sin vector de umbrales")
+            continue
+        
+        # NORMALIZAR también el vector de umbrales
+        norma_umbral = np.linalg.norm(umbral_vector)
+        if norma_umbral > 1e-10:
+            umbral_norm = umbral_vector / norma_umbral
         else:
-            # MÉTODO LAB5: Distancia mínima a TODOS los patrones
-            distancias = []
-            for patron in patrones:
-                patron_array = np.array(patron, dtype=float)
-                dist = np.linalg.norm(E - patron_array)
-                distancias.append(dist)
-            
-            d_min = min(distancias)
-            d_mean = np.mean(distancias)
-            print(f"  {nombre_comando}: min={d_min:.4f}, mean={d_mean:.4f} ({len(patrones)} patrones)")
+            umbral_norm = umbral_vector
         
-        distancias_minimas[nombre_comando] = float(d_min)
+        # Distancia Euclidiana entre vectores normalizados
+        # Esto mide similitud en FORMA espectral
+        distancia = np.linalg.norm(E_norm - umbral_norm)
+        distancias[nombre_comando] = distancia
+        
+        print(f"{nombre_comando}:")
+        print(f"  Umbral normalizado: {umbral_norm}")
+        print(f"  Distancia: {distancia:.6f}")
     
-    # El comando con menor distancia mínima gana
-    mejor_comando = min(distancias_minimas.items(), key=lambda kv: kv[1])[0]
-    mejor_dist = distancias_minimas[mejor_comando]
+    if len(distancias) == 0:
+        print(f"✗ No hay comandos para comparar")
+        return None, float('inf')
     
-    print(f"\n  ✓ GANADOR: {mejor_comando} (dist_min={mejor_dist:.4f})")
+    # TEORÍA: Comando reconocido = argmin(distancias)
+    mejor_comando = min(distancias.items(), key=lambda x: x[1])
+    comando_ganador = mejor_comando[0]
+    distancia_minima = mejor_comando[1]
     
-    # Mostrar ranking completo
-    sorted_dists = sorted(distancias_minimas.items(), key=lambda x: x[1])
-    print(f"\n  Ranking:")
-    for i, (label, dist) in enumerate(sorted_dists, 1):
-        marca = "★" if i == 1 else " "
-        print(f"    {marca} {i}° {label}: {dist:.4f}")
+    print(f"{'-'*60}")
+    print(f"RANKING DE COMANDOS (por cercanía):")
+    sorted_distancias = sorted(distancias.items(), key=lambda x: x[1])
+    for i, (cmd, dist) in enumerate(sorted_distancias, 1):
+        marca = "★" if cmd == comando_ganador else " "
+        print(f"  {marca} {i}° {cmd}: {dist:.6f}")
     
-    return mejor_comando, mejor_dist
+    print(f"{'='*60}")
+    print(f"✓ COMANDO RECONOCIDO: {comando_ganador}")
+    print(f"  Distancia: {distancia_minima:.6f}")
+    print(f"{'='*60}\n")
+    
+    return comando_ganador, distancia_minima
 
 
 def cargar_imagen_opencv_unicode(ruta):
@@ -124,8 +157,20 @@ def cargar_imagen_opencv_unicode(ruta):
         return None
 
 
-def ejecutar_operacion_imagen(comando, ruta_imagen):
-    """Aplica una operacion de ejemplo sobre una imagen de acuerdo al comando reconocido."""
+def ejecutar_operacion_imagen(comando, ruta_imagen, pausar_callback=None, reanudar_callback=None):
+    """Aplica una operacion de ejemplo sobre una imagen de acuerdo al comando reconocido.
+    
+    Parámetros:
+    -----------
+    comando : str
+        Nombre del comando (COMANDO_1, COMANDO_2, COMANDO_3)
+    ruta_imagen : str o Path
+        Ruta de la imagen a procesar
+    pausar_callback : callable, opcional
+        Función a llamar al abrir la ventana (pausar micrófono)
+    reanudar_callback : callable, opcional
+        Función a llamar al cerrar la ventana (reanudar micrófono)
+    """
     import cv2
     import tkinter as tk
     
@@ -142,19 +187,19 @@ def ejecutar_operacion_imagen(comando, ruta_imagen):
     # COMANDO_1: Segmentación con K-means
     if comando == "COMANDO_1":  # segmentar
         from ventana_segmentacion import VentanaSegmentacionKMeans
-        VentanaSegmentacionKMeans(root, ruta_imagen)
+        VentanaSegmentacionKMeans(root, ruta_imagen, pausar_callback, reanudar_callback)
         return
     
     # COMANDO_2: Compresión con DCT-2D
     elif comando == "COMANDO_2":  # comprimir
         from ventana_compresion import VentanaCompresionDCT
-        VentanaCompresionDCT(root, ruta_imagen)
+        VentanaCompresionDCT(root, ruta_imagen, pausar_callback, reanudar_callback)
         return
     
-    # COMANDO_3: Cifrado (por implementar)
+    # COMANDO_3: Cifrado Arnold + FrDCT
     elif comando == "COMANDO_3":  # cifrar
         from ventana_cifrado import VentanaCifradoFrDCT
-        VentanaCifradoFrDCT(root, ruta_imagen)
+        VentanaCifradoFrDCT(root, ruta_imagen, pausar_callback, reanudar_callback)
         return
     
     else:
